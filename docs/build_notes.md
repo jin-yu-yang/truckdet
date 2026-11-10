@@ -12,6 +12,7 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 0 checks (`scripts/spike.py`), without the timing | Real checkpoint, CPU | All passed (§2 below) |
 | Stage 0 checks with the timing (`scripts/spike.py --time`) | Real checkpoint, Colab T4, fp16 | All passed; speed and memory in §6 |
 | Stage 1 (`prepare_data.py`, `make_split.py`), first run | MIO-TCD, Colab T4 | The counts and the ignore classes are confirmed; the val split of the design's size has too few boxes of three classes (§7) |
+| Stage 1, second run | MIO-TCD, Colab T4 | The class counts pass with a val split of 5,724 images. **The scene check fails:** the scene groups do not separate the cameras (§8). The split is not accepted |
 | Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 132 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
@@ -21,7 +22,7 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | **Not run:** the start model and a training run on MIO-TCD | | Stage `checks` of the notebook |
 
 So stage `checks` of the notebook is the first training run on the GPU, and the first run of the
-model on MIO-TCD images.
+model on MIO-TCD images. It does not start before a split passes the scene check (§8).
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -263,3 +264,51 @@ Other results of the run:
 - **The ignore classes are the six of §3.1**, confirmed against the dataset's code archive.
 - **The train subset** (8,000 images) of this first split had 139 `bicycle`, 149 `motorcycle` and
   171 `non-motorized_vehicle` boxes. The second run draws a new subset from the smaller train pool.
+
+## 8. Stage 1 on MIO-TCD: the second run
+
+Stage `data` of the notebook at commit `ef89272`, 2026-11-10. The counts and the ignore classes are
+as in the first run.
+
+**Class counts: passed, with a larger val split.**
+
+| | Images | Scene groups | Smallest classes |
+|---|---|---|---|
+| test | 10,088 | 97 | `motorcycle` 195, `non-motorized_vehicle` 234, `bicycle` 448 (100 needed) |
+| val | 5,724 | 49 | `bicycle` 30, `non-motorized_vehicle` 69, `motorcycle` 90 (30 needed) |
+| train pool | 94,188 | 854 | |
+| train subset | 8,000 | | `motorcycle` 131, `bicycle` 137, `non-motorized_vehicle` 185 |
+
+The val split took 31 more groups to get 30 `bicycle` boxes. It is 2.8 times the size of the
+design, so the scoring of the val split after each run takes 2.8 times as long.
+
+**No overlap: passed.**
+
+**Label completeness: counted; the result depends on what counts as an object.** The 100 images
+have 297 boxes. The count of the objects with no box, by a person:
+
+| What is counted | With no box | Rate |
+|---|---|---|
+| Clear objects: a vehicle that is fully visible, moving or on the road | 6 | 6 of 303 = 2.0% |
+| All objects at a best guess: also tiny, occluded and blurry vehicles, and headlights at night | about 35 | 35 of 332 = about 10.5% |
+
+No pedestrian with no box was found. The limit of design §4.5 is 5%: the first count is below it,
+and the second is above it. The design does not say which objects count. This decision is open.
+
+**Scene check: failed.** A person looked at 5 of the sheets of the scene split, 125 pairs. Each
+pair shows the same camera view. The limit is 10 pairs of 200. So the k-means groups do not
+separate the cameras: a test image has a frame of its own camera in the train pool. The numbers of
+both runs showed this before the count: the mean similarity of a test image and its nearest
+train-pool image is 0.993 for the scene split and 0.996 for a random split, so the scene split
+removed almost nothing. The notes of the first run recorded the two numbers and did not draw this
+conclusion.
+
+A likely cause, not measured yet: k-means cuts the frames of one camera into more than one
+cluster (by the light, the weather or the traffic), so a frame in a test cluster has a near copy
+in a cluster of the train pool.
+
+The split of this run is not accepted. Its files are not committed, and no training starts on it.
+The design gives no rule for a failed scene check, so the next method is a change to design §4.3.
+
+**COCO detections: looked at.** On the sheet of 20 images, each box of the checkpoint is on its
+object, and no class name is wrong.

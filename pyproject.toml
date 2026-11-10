@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "truckdet"
+version = "0.1.0"
+description = "LoRA position in RF-DETR: backbone against decoder, on MIO-TCD"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.6",
+  "torchvision>=0.21",
+  "transformers==5.20.1",
+  "scipy>=1.11",
+  "pycocotools>=2.0.7",
+  "scikit-learn>=1.4",
+  "numpy>=1.26",
+  "pillow>=10",
+  "pyyaml>=6",
+  "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "nbformat>=5.9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = ["slow: needs network and the pretrained checkpoint (deselected by default)"]

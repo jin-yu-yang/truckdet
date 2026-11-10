@@ -56,7 +56,8 @@ def main(argv: list[str] | None = None) -> None:
         rows = read_jsonl(run_dir / "metrics.jsonl")
         losses = [r["loss"] for r in rows]
         print(f"arm {arm}: loss {losses[0]:.3f} -> {losses[-1]:.3f} over {len(rows)} epochs; "
-              f"skipped batches {sum(r['skipped'] for r in rows)}")
+              f"skipped batches {sum(r['skipped'] for r in rows)}; the fp16 scaler skipped "
+              f"{sum(r['scaler_skips'] for r in rows)} of {sum(r['steps'] for r in rows)} optimizer steps")
         complete = [r["epoch"] for r in rows] == list(range(epochs))
         decreased = losses[-1] < 0.9 * losses[0]
         ok &= complete and decreased

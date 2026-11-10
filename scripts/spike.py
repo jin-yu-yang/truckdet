@@ -19,7 +19,7 @@ import torch
 from PIL import Image
 
 from truckdet.config import load_config
-from truckdet.engine import NanGuard, build_optimizer, build_scheduler, training_loss
+from truckdet.engine import NanGuard, build_optimizer, build_scheduler, step_schedule, training_loss
 from truckdet.model.arms import (
     apply_arm, build_start_model, format_param_table, inference_head_params, param_table,
     used_backbone_layers,
@@ -54,14 +54,18 @@ def synthetic_batch(batch_size: int, size: int, device, boxes: int = 3, classes:
     return pixel_values, labels
 
 
-def time_arm(model, device, batch_size: int, size: int, steps: int, amp: bool) -> tuple[float, float]:
-    """(images per second, peak memory in GB) of training steps on a synthetic batch."""
+def time_arm(model, device, batch_size: int, size: int, steps: int, amp: bool) -> tuple[float, float, int, int]:
+    """Training steps on a synthetic batch: (images per second, peak memory in GB, steps that the fp16 gradient
+    scaler did not apply, all steps). The scaler starts with a scale of 65,536; when a scaled gradient is not
+    finite in fp16 it leaves the step out and halves the scale. Some such steps at the start are normal. A scaler
+    that skips all steps is not: the weights then never change."""
     model.to(device).train()
     optimizer = build_optimizer(model, 1e-5, 1e-4)
     scheduler = build_scheduler(optimizer, steps + 3)
     scaler = torch.amp.GradScaler(device.type, enabled=amp and device.type == "cuda")
     pixel_values, labels = synthetic_batch(batch_size, size, device)
     guard = NanGuard()
+    skips = 0
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
     for step in range(steps + 3):
@@ -75,14 +79,16 @@ def time_arm(model, device, batch_size: int, size: int, steps: int, amp: bool) -
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 0.1)
+        scale_before = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
-        scheduler.step()
+        skips += int(scaler.get_scale() < scale_before)
+        step_schedule(scheduler)
     if device.type == "cuda":
         torch.cuda.synchronize()
     elapsed = time.time() - start
     peak = torch.cuda.max_memory_allocated() / 2**30 if device.type == "cuda" else float("nan")
-    return steps * batch_size / elapsed, peak
+    return steps * batch_size / elapsed, peak, skips, steps + 3
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -167,16 +173,24 @@ def main(argv: list[str] | None = None) -> None:
     if args.time:
         print(f"\ntraining speed on {device} (batch {args.batch_size}, {args.steps} steps, "
               f"{'fp32' if args.no_amp or device.type != 'cuda' else 'fp16 autocast'}, {size} px, 3 boxes per image):")
-        print("| Arm | Images per second | Peak memory (GB) | Hours for one run (96,000 image passes) |\n|---|---|---|---|")
+        print("| Arm | Images per second | Peak memory (GB) | Hours for one run (96,000 image passes) "
+              "| Steps the scaler skipped |\n|---|---|---|---|---|")
+        scaler_steps = {}
         for arm, model in models.items():
             try:
-                speed, peak = time_arm(model, device, args.batch_size, size, args.steps, not args.no_amp)
-                print(f"| {arm} | {speed:.1f} | {peak:.2f} | {IMAGES_PER_RUN / speed / 3600:.2f} |", flush=True)
+                speed, peak, skips, total = time_arm(model, device, args.batch_size, size, args.steps, not args.no_amp)
+                scaler_steps[arm] = (skips, total)
+                print(f"| {arm} | {speed:.1f} | {peak:.2f} | {IMAGES_PER_RUN / speed / 3600:.2f} | {skips} of {total} |",
+                      flush=True)
             except torch.OutOfMemoryError:
-                print(f"| {arm} | out of memory at batch {args.batch_size}: use a smaller batch and more accumulation steps | | |")
+                print(f"| {arm} | out of memory at batch {args.batch_size}: use a smaller batch and more accumulation "
+                      "steps | | | |")
             model.cpu()
             if device.type == "cuda":
                 torch.cuda.empty_cache()
+        for arm, (skips, total) in scaler_steps.items():
+            ok &= check(f"arm {arm}: the gradient scaler applies more than half of the steps", 2 * skips < total,
+                        f"{skips} of {total} skipped")
 
     if args.image_dir:
         raw.to(device)

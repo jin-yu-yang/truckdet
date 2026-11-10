@@ -143,7 +143,9 @@ def run_training(
         append_jsonl(metrics_path, {"epoch": epoch, **stats, "lr": scheduler.get_last_lr()[0]})
         save_checkpoint(last_path, model, optimizer, scheduler, scaler, epoch, meta, skipped=guard.skipped)
         print(f"[train] epoch {epoch} done in {stats['time_s']:.0f}s ({stats['images_per_s']:.1f} images/s), "
-              f"loss {stats['loss']:.4f}", flush=True)
+              f"loss {stats['loss']:.4f}"
+              + (f"; the fp16 scaler skipped {stats['scaler_skips']} of {stats['steps']} optimizer steps"
+                 if stats["scaler_skips"] else ""), flush=True)
         epoch_times.append(stats["time_s"])
         remaining = epochs - epoch - 1
         mean_time = sum(epoch_times) / len(epoch_times)
@@ -152,9 +154,12 @@ def run_training(
             print(f"[train] stopped after epoch {epoch} (stop_after={stop_after}); run again to resume")
             return run_dir
 
-    save_final(final_path, model, epochs - 1, {**meta, "skipped": guard.skipped})
+    scaler_skips = sum(row.get("scaler_skips", 0) for row in read_jsonl(metrics_path))
+    save_final(final_path, model, epochs - 1, {**meta, "skipped": guard.skipped, "scaler_skips": scaler_skips})
     last_path.unlink(missing_ok=True)
     plot_curves(metrics_path, run_dir / "curves.png")
     if guard.skipped:
         print(f"[train] WARNING: {guard.skipped} batches were skipped for a non-finite loss")
+    if scaler_skips:
+        print(f"[train] the fp16 scaler skipped {scaler_skips} optimizer steps in the run")
     return run_dir

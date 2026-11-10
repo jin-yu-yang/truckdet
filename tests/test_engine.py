@@ -144,3 +144,33 @@ def test_nan_batches_are_skipped_without_updating(monkeypatch):
     assert stats["steps"] == 0 and stats["skipped"] == 4
     assert all(torch.equal(v, before[k]) for k, v in model.state_dict().items())
     assert scheduler.last_epoch == 2  # the schedule follows the planned steps
+
+
+def test_a_step_that_the_gradient_scaler_skips_is_counted(monkeypatch, recwarn):
+    """What fp16 does on the T4: the loss is finite, a scaled gradient is not. The scaler leaves the step out and
+    halves its scale. The step is counted, the schedule goes on, and the later steps change the weights."""
+    model = model_for("H")
+    start = copy.deepcopy(model.state_dict())
+    after_first = {}
+
+    def loss_fn(model, pixel_values, labels, amp=False):
+        loss, parts = training_loss(model, pixel_values, labels, amp)
+        if not after_first:  # the first batch: sqrt has no finite gradient at 0, and its value there is 0
+            loss = loss + torch.sqrt(model.class_embed.weight.sum() * 0)
+        else:
+            after_first.setdefault("weights", copy.deepcopy(model.state_dict()))
+        after_first.setdefault("called", True)
+        return loss, parts
+
+    monkeypatch.setattr("truckdet.engine.training_loss", loss_fn)
+    optimizer = build_optimizer(model, lr=1e-2, weight_decay=0.0)
+    scheduler = build_scheduler(optimizer, 100)
+    scaler = torch.amp.GradScaler("cpu", enabled=True)
+    stats = train_one_epoch(model, [batch()] * 3, optimizer, scheduler, scaler, CPU, 0.1, False, NanGuard(),
+                            accum_steps=1, log_every=0)
+    assert stats["steps"] == 3 and stats["scaler_skips"] == 1 and stats["skipped"] == 0
+    assert scaler.get_scale() == 65536 / 2
+    assert all(torch.equal(v, start[k]) for k, v in after_first["weights"].items())  # the skipped step changed nothing
+    assert any(not torch.equal(v, start[k]) for k, v in model.state_dict().items())  # the next steps did
+    assert scheduler.last_epoch == 3
+    assert not [w for w in recwarn if "lr_scheduler.step()" in str(w.message)]  # explained in engine.py; not shown

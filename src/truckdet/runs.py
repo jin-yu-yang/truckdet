@@ -107,7 +107,8 @@ def evaluate_run(
         predictions, merge_diff = _predict_split(model, gt, data_root, processor_loader(cfg.model_name), device,
                                                  cfg.train.eval_batch_size, workers)
         meta = {"run": run_dir.name, "arm": cfg.arm, "seed": cfg.train.seed, "split": split,
-                "merge_max_abs_diff": merge_diff, "skipped_batches": ckpt_meta.get("skipped", 0)}
+                "merge_max_abs_diff": merge_diff, "skipped_batches": ckpt_meta.get("skipped", 0),
+                "scaler_skips": ckpt_meta.get("scaler_skips", 0)}
         save_predictions(pred_path, predictions, meta)
     result = {**score_predictions(gt, predictions), "errors": _error_numbers(gt, predictions), **meta}
     write_json(eval_path, result)

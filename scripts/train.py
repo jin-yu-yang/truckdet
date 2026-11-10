@@ -57,7 +57,8 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_eval:
         result = evaluate_run(run_dir, args.data_root, args.splits_dir, "val", args.device)
         print(f"[eval] {run_dir.name}: val AP {result['AP']:.4f}, AP50 {result['AP50']:.4f}, "
-              f"merge difference {result['merge_max_abs_diff']:.1e}, skipped batches {result['skipped_batches']}")
+              f"merge difference {result['merge_max_abs_diff']:.1e}, skipped batches {result['skipped_batches']}, "
+              f"steps the fp16 scaler skipped {result.get('scaler_skips', 0)}")
 
 
 if __name__ == "__main__":

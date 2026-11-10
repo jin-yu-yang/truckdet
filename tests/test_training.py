@@ -32,7 +32,7 @@ def test_run_writes_the_final_checkpoint(arm, data_root, splits_dir, tmp_path):
     if arm != "F":  # trainable parameters only: heads and adapters
         assert all(arms.is_head(n) or arms.is_adapter(n) for n in state["model"])
     meta = read_meta(run_dir / "final.pt")
-    assert meta["config"]["arm"] == arm and meta["epochs"] == 2 and meta["skipped"] == 0
+    assert meta["config"]["arm"] == arm and meta["epochs"] == 2 and meta["skipped"] == 0 and meta["scaler_skips"] == 0
     assert "optimizer" not in state
 
 

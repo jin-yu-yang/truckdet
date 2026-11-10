@@ -127,6 +127,7 @@ def build_numbers(analyses: dict[str, list[RunAnalysis]]) -> dict:
                                 "box AP", "box AP50")},
             "merge_max_abs_diff": [r.meta.get("merge_max_abs_diff") for r in runs],
             "skipped_batches": [r.meta.get("skipped_batches") for r in runs],
+            "scaler_skips": [r.meta.get("scaler_skips") for r in runs],
         }
 
     recovered = {}
@@ -309,13 +310,18 @@ def render(numbers: dict, context: dict) -> str:
     if context.get("gate"):
         lines += [gate_text(context["gate"]), ""]
 
-    lines += ["## Checks", "", "| Arm | Runs | Merge difference (largest) | Skipped batches |", "|---|---|---|---|"]
+    lines += ["## Checks", "",
+              "| Arm | Runs | Merge difference (largest) | Skipped batches | Steps the fp16 scaler skipped |",
+              "|---|---|---|---|---|"]
     for arm in ARMS:
         merges = [m for m in arms[arm]["merge_max_abs_diff"] if m is not None]
         skipped = [s for s in arms[arm]["skipped_batches"] if s is not None]
+        scaler = [s for s in arms[arm]["scaler_skips"] if s is not None]
         lines.append(f"| {ARM_LABELS[arm]} | {', '.join(arms[arm]['runs'])} | "
-                     f"{max(merges):.1e} | {sum(skipped)} |" if merges else
-                     f"| {ARM_LABELS[arm]} | {', '.join(arms[arm]['runs'])} | – | – |")
+                     f"{max(merges):.1e} | {sum(skipped)} | {sum(scaler)} |" if merges else
+                     f"| {ARM_LABELS[arm]} | {', '.join(arms[arm]['runs'])} | – | – | – |")
+    lines += ["", "A skipped batch had a loss that was not finite. A step that the fp16 scaler skipped had a scaled "
+              "gradient that was not finite; the scaler halves its scale and the run goes on."]
     if context.get("samples"):
         lines += ["", "## Sample images", "",
                   "White: ground truth. Colour: detections with a score of 0.5 or more, by arm (seed 0).", ""]

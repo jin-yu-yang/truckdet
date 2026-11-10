@@ -10,16 +10,17 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | | Where it ran | Result |
 |---|---|---|
 | Stage 0 checks (`scripts/spike.py`), without the timing | Real checkpoint, CPU | All passed (§2 below) |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 128 passed |
+| Stage 0 checks with the timing (`scripts/spike.py --time`) | Real checkpoint, Colab T4, fp16 | All passed; speed and memory in §6 |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 129 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
 | The scripts `make_split.py` and `spike.py --image-dir` | The same stand-in images, real backbone, CPU | They run; the sheets look right |
-| **Not run:** anything on a GPU | | The fp16 path, the speed and the memory are first measured by stage `spike` of the notebook |
+| **Not run:** a training run on a GPU | | Stage 0 timed 23 steps of each arm (§6). Stage `checks` of the notebook is the first run with a data loader, checkpoints and an evaluation |
 | **Not run:** anything on MIO-TCD | | The download, the counts, the embeddings and k-means at 110,000 images first run in stage `data` |
 
-So the first Colab run is the first run of the GPU path and of the real data. The notebook starts
-with the two stages that test them.
+So stage `data` of the notebook is the first run on the real data, and stage `checks` is the first
+training run on the GPU.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -161,3 +162,43 @@ the code. They are not results.
 - **Not done here:** "arm F reaches AP50 above 0.9 on 16 images" (stage 4). On this CPU one step
   of arm F takes 20 to 45 seconds. Stage `checks` of the notebook runs it on the T4. If it fails
   there and the loss still decreases, give it more epochs (`--epochs-f`).
+
+## 6. Stage 0 on the Colab T4
+
+`scripts/spike.py --time --batch-size 4 --steps 20` at commit `082080b`, on a Tesla T4 with fp16
+autocast, 2026-11-10. All checks of stage 0 passed, with the numbers of §2.
+
+| Arm | Images per second | Peak memory (GB) | Hours for one run (96,000 image passes) |
+|---|---|---|---|
+| H | 28.1 | 0.57 | 0.95 |
+| D | 21.7 | 1.29 | 1.23 |
+| B | 15.4 | 2.17 | 1.73 |
+| F | 13.5 | 3.45 | 1.98 |
+
+- **Batch.** The largest peak is 3.45 GB of the T4's 15 GB. The batch stays 4 images × 4
+  accumulation steps (design §6).
+- **Time.** Each arm has 5 runs (3 learning rates, then seeds 1 and 2):
+  5 × (0.95 + 1.23 + 1.73 + 1.98) = 29.5 hours for the 20 runs. The gate comes after the 3 runs of H
+  and the 3 runs of F: 8.8 hours. An added learning-rate step (design §6) is one more run of its
+  arm. The design's estimate (§10) was 2 to 3 hours for a run of F or B and half of that for H or D;
+  the measured times are at or below it.
+- **What the time leaves out.** The table times the training step on one synthetic batch that is
+  already on the GPU. A real run also reads and resizes images (2 workers) and evaluates the val
+  split at its end. Each epoch line of a run prints its images per second and the time that remains.
+- **The loss was finite** in all 23 steps of all arms. The script prints each loss that is not
+  finite, and it printed none. So the fp16 forward pass with the float32 loss (§3.3) works on the T4.
+- **The gradient scaler left out at least the first optimizer step.** The run gave PyTorch's warning
+  "`lr_scheduler.step()` before `optimizer.step()`". The loop steps the optimizer first, so the
+  warning has one cause: the scaler did not apply the first step, because a scaled gradient was not
+  finite in fp16. The scaler starts with a scale of 65,536 and halves it after each such step, so
+  some skipped steps at the start are the normal behaviour. They cost almost nothing: a run has
+  6,000 optimizer steps, and the warm-up gives the first three 1% of the learning rate or less. But
+  this run did not count them, and a scaler that skips all steps would train nothing. The code now
+  counts them:
+  - `spike.py --time` has a column "Steps the scaler skipped" and a check that more than half of
+    the steps are applied;
+  - each epoch line of a run, and the overfit check of stage 4, print the count;
+  - the evaluation record of a run has `scaler_skips`, and the report's check table has a column.
+
+  The warning is not shown any more (`engine.step_schedule`); the count replaces it. The check of
+  stage 6, "no skipped step", stays as §4 has it: 0 batches with a loss that is not finite.

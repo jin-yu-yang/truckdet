@@ -26,7 +26,7 @@ def test_evaluate_run_saves_predictions_and_scores(data_root, splits_dir, tmp_pa
     predictions, meta = load_predictions(run_dir / "pred_val.npz")
     assert predictions["image_ids"].tolist() == list(range(12, 18)) and predictions["scores"].shape == (6, 12, 11)
     assert meta == {"run": "b_lr1e-3_s0", "arm": "B", "seed": 0, "split": "val",
-                    "merge_max_abs_diff": meta["merge_max_abs_diff"], "skipped_batches": 0}
+                    "merge_max_abs_diff": meta["merge_max_abs_diff"], "skipped_batches": 0, "scaler_skips": 0}
     assert 0 < meta["merge_max_abs_diff"] < 1e-9  # a trained adapter, merged exactly
     assert json.loads((run_dir / "eval_val.json").read_text()) == json.loads(json.dumps(result))
     assert result["images"] == 6 and 0.0 <= result["AP"] <= 1.0

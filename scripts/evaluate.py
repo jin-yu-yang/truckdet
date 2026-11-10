@@ -68,7 +68,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"{run_dir.name}, {result['images']} {args.split} images: AP {result['AP']:.4f}, AP50 {result['AP50']:.4f}, "
               f"AP75 {result['AP75']:.4f}, truck family {result['AP truck family']:.4f}, box AP {result['box AP']:.4f}")
         print(f"  merge difference {result['merge_max_abs_diff']:.1e} (must be below 1e-4); "
-              f"skipped batches {result['skipped_batches']} (must be 0)", flush=True)
+              f"skipped batches {result['skipped_batches']} (must be 0); "
+              f"steps the fp16 scaler skipped {result.get('scaler_skips', 0)}", flush=True)
         if result["merge_max_abs_diff"] >= 1e-4 or result["skipped_batches"]:
             bad.append(run_dir.name)
     if bad:

@@ -12,6 +12,7 @@ same loss function in fp32.
 
 import math
 import time
+import warnings
 from collections import defaultdict
 
 import torch
@@ -22,6 +23,17 @@ from .data.dataset import labels_on
 from .model.arms import is_head
 
 LOGGED = ("loss", "loss_ce", "loss_bbox", "loss_giou")
+
+
+def step_schedule(scheduler) -> None:
+    """`scheduler.step()`, without one warning of PyTorch.
+
+    In fp16 the gradient scaler can leave out the first optimizer step of a run (seen on the T4 in stage 0).
+    PyTorch then warns that the scheduler stepped before the optimizer. The callers do step the optimizer first;
+    the step that the scaler left out is counted (`scaler_skips`) and printed, so the warning adds nothing."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=r"Detected call of `lr_scheduler\.step\(\)` before")
+        scheduler.step()
 
 
 def training_loss(model, pixel_values: torch.Tensor, labels: list[dict], amp: bool = False) -> tuple[torch.Tensor, dict]:
@@ -157,7 +169,7 @@ def train_one_epoch(
                 scaler_skips += int(scaler.get_scale() < scale_before)
                 steps += 1
             optimizer.zero_grad(set_to_none=True)
-            scheduler.step()  # the schedule follows the planned steps, also when a step had nothing to apply
+            step_schedule(scheduler)  # the schedule follows the planned steps, also when a step had nothing to apply
             pending = 0
         if log_every and i % log_every == 0:
             print(

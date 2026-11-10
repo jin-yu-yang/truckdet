@@ -307,7 +307,8 @@ A likely cause, not measured yet: k-means cuts the frames of one camera into mor
 cluster (by the light, the weather or the traffic), so a frame in a test cluster has a near copy
 in a cluster of the train pool.
 
-The split of this run is not accepted. Its files are not committed, and no training starts on it.
+The split of this run is not accepted, and no training starts on it. Its files are in
+`splits/rejected_kmeans_k1000/` as a record; `splits/` itself stays empty until a split passes.
 The design gives no rule for a failed scene check, so the next method is a change to design §4.3.
 
 **COCO detections: looked at.** On the sheet of 20 images, each box of the checkpoint is on its

@@ -1,0 +1,90 @@
+{
+  "boxes_per_class": {
+    "test": {
+      "articulated_truck": 671,
+      "bicycle": 448,
+      "bus": 1300,
+      "car": 28310,
+      "motorcycle": 195,
+      "motorized_vehicle": 2326,
+      "non-motorized_vehicle": 234,
+      "pedestrian": 1521,
+      "pickup_truck": 4039,
+      "single_unit_truck": 451,
+      "work_van": 951
+    },
+    "train": {
+      "articulated_truck": 690,
+      "bicycle": 137,
+      "bus": 761,
+      "car": 16665,
+      "motorcycle": 131,
+      "motorized_vehicle": 1890,
+      "non-motorized_vehicle": 185,
+      "pedestrian": 450,
+      "pickup_truck": 3331,
+      "single_unit_truck": 416,
+      "work_van": 638
+    },
+    "train_pool": {
+      "articulated_truck": 8264,
+      "bicycle": 1782,
+      "bus": 8992,
+      "car": 195470,
+      "motorcycle": 1552,
+      "motorized_vehicle": 22390,
+      "non-motorized_vehicle": 2047,
+      "pedestrian": 5241,
+      "pickup_truck": 38776,
+      "single_unit_truck": 5013,
+      "work_van": 7270
+    },
+    "val": {
+      "articulated_truck": 366,
+      "bicycle": 30,
+      "bus": 306,
+      "car": 9714,
+      "motorcycle": 90,
+      "motorized_vehicle": 1129,
+      "non-motorized_vehicle": 69,
+      "pedestrian": 366,
+      "pickup_truck": 1467,
+      "single_unit_truck": 276,
+      "work_van": 488
+    }
+  },
+  "class_minimums": {
+    "test": 100,
+    "val": 30
+  },
+  "group_source": "k-means, k = 1000, on unit-length mean features of the frozen backbone at 224 px",
+  "groups": 1000,
+  "images": {
+    "test": 10088,
+    "train": 8000,
+    "train_pool": 94188,
+    "val": 5724
+  },
+  "made_larger_for_class_counts": {
+    "images_at_the_sizes_of_the_design": {
+      "test": 10088,
+      "val": 2016
+    },
+    "short_at_the_sizes_of_the_design": [
+      "val: bicycle has 5 boxes, 30 are needed; make the split larger",
+      "val: motorcycle has 29 boxes, 30 are needed; make the split larger",
+      "val: non-motorized_vehicle has 10 boxes, 30 are needed; make the split larger"
+    ]
+  },
+  "model": "Roboflow/rf-detr-base",
+  "neighbour_similarity": {
+    "adjacent_ids": 0.9136362671852112,
+    "random_pairs": 0.9135863780975342
+  },
+  "requested": {
+    "test": 10000,
+    "train": 8000,
+    "val": 2000
+  },
+  "seed": 0
+}

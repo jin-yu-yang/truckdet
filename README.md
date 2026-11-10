@@ -3,7 +3,9 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the design is complete and the build is in progress. No results yet.
+> **Status:** the code is complete and tested on a CPU. No training run yet, so no results yet.
+> The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
+> [docs/build_notes.md](docs/build_notes.md).
 
 ## The question
 
@@ -67,6 +69,8 @@ Four training configurations ("arms") start from the same pre-trained model:
 | B | Heads, and LoRA in the backbone (rank 9, 22 projections) | 152,064 |
 | F | All parameters (full fine-tuning) | — |
 
+Trainable parameters, counted on the real checkpoint: H 1,896,146; D and B 2,048,210 each; F 31,886,690.
+
 The *recovered share* of an arm X is (AP_X − AP_H) / (AP_F − AP_H).
 
 I wrote three predictions before any training run:
@@ -93,8 +97,9 @@ project stops there.
   dataset has no camera ID, so I estimate scene groups from image embeddings
   and keep each group in one split.
 - **Ignore regions.** The class `motorized_vehicle` marks vehicles that are
-  too small to identify. A specific vehicle class on such a box is not a true
-  positive and not a false positive.
+  too small to identify. A detection of one of six vehicle classes on such a
+  box is not a true positive and not a false positive. The six classes are
+  those of the dataset's own evaluation code.
 - **The test split is scored one time** for each final model.
 
 ## Results
@@ -108,15 +113,70 @@ project stops there.
 - the error split (boxes and labels) and the confusion table of the truck
   classes
 
+## Run it
+
+The experiment runs on a Colab T4 from one notebook,
+[notebooks/colab_train.ipynb](notebooks/colab_train.ipynb). The notebook has one switch, `STAGE`. Each
+stage ends with its check from the design, and the next stage does not start before that check passes.
+
+| `STAGE` | What runs | The check |
+|---|---|---|
+| `spike` | Model facts on the real checkpoint; speed and memory of each arm | The parameter counts; the last backbone layer changes no logit |
+| `data` | Download, converter, scene groups, split files | Counts, label completeness, class counts, no overlap, scene check |
+| `checks` | The COCO checkpoint with no training; the training loop on 16 images | AP50 of `car` and `bus` above zero; arm F reaches AP50 above 0.9 |
+| `gate` | Learning-rate runs of H and F | The gate |
+| `main` | Learning-rate runs of D and B; seeds 1 and 2 of all arms | No skipped step; the merge check |
+| `report` | The test split, one time for each final checkpoint; the report | A second run gives the same text |
+
+On a computer with no GPU:
+
+```bash
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+```
+
+```bash
+.venv/bin/python -m pytest
+```
+
+```bash
+.venv/bin/python -m pytest -m slow
+```
+
+```bash
+.venv/bin/python scripts/spike.py
+```
+
+The first command makes the environment. The second runs the tests on a tiny random RF-DETR and a
+synthetic dataset (no network, 20 seconds). The third and the fourth check the facts of the design on
+the real checkpoint (a download of 130 MB the first time).
+
+## The code
+
+| Unit | Responsibility |
+|---|---|
+| `data/miotcd.py` | `gt_train.csv` to COCO JSON; counts; class order |
+| `data/scenes.py` | Embeddings, k-means, scene groups, split files, nearest neighbours |
+| `data/dataset.py` | Dataset and collate function with the library's image processor |
+| `model/lora.py` | `LoRALinear`, `inject_lora` with a layer filter, `merge_lora` |
+| `model/arms.py` | The start model, the class heads, freezing by name, the adapters of an arm, the parameter table |
+| `engine.py`, `training.py`, `checkpoint.py` | The library's loss in float32, optimizer groups, schedule, one epoch, a run that can resume |
+| `evaluation.py` | Saved predictions; ignore regions; AP with a weight for each image; box AP |
+| `errors.py` | Localized share, label accuracy, confusion table |
+| `stats.py` | Paired bootstrap, recovered share, the gate, the three readings as text |
+| `runs.py`, `report.py`, `plotting.py`, `sheets.py` | Run folders, learning-rate choice, the report, the figure, the check sheets |
+| `scripts/` | One script for each step of the notebook |
+
+All analysis runs on a CPU from the saved predictions of each run.
+
 ## Written by me, and borrowed
 
 | Written by me | Borrowed |
 |---|---|
-| LoRA layer, injection and merging (from `detr-lora`) | RF-DETR model, weights and loss (`transformers`) |
-| Dataset converter and scene split | COCO AP code (`pycocotools`) |
-| Arm definitions and parameter accounting | PyTorch |
-| Training loop | |
-| Evaluation with ignore regions, error split, bootstrap statistics | |
+| LoRA layer, injection and merging (from `detr-lora`) | RF-DETR model, weights, loss and image processor (`transformers`) |
+| Dataset converter and scene split | Matching of detections to boxes (`pycocotools`) |
+| Arm definitions and parameter accounting | k-means (`scikit-learn`) |
+| Training loop | PyTorch |
+| Evaluation with ignore regions, AP from the matches, error split, bootstrap statistics | |
 
 ## Limits
 

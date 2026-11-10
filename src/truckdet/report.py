@@ -4,8 +4,9 @@ Everything is calculated on a CPU from the saved predictions (`pred_<split>.npz`
 has no random part that is not seeded, so a second run gives the same text.
 
 An arm's number is the mean of its seeds. An interval is the 95% range of 400 paired bootstrap
-resamples of the images: in each resample all arms and seeds are scored on the same images, and
-the seeds of an arm are averaged.
+resamples of the scene groups of the split (design §7.3): in each resample all arms and seeds are
+scored on the same images, and the seeds of an arm are averaged. The interval of AP_B - AP_D from
+resamples of single images is shown next to it, one time.
 """
 
 import hashlib
@@ -24,10 +25,10 @@ from .evaluation import (
 )
 from .plotting import recovered_share_figure
 from .reporting import write_json
-from .runs import GATE, SEEDS, file_sha256, final_runs, gate_text, read_selection, split_ground_truth
+from .runs import GATE, SEEDS, file_sha256, final_runs, gate_text, read_selection, split_groups, split_ground_truth
 
 # Bump when the analysis code changes what it calculates: the cache key covers files, not code.
-ANALYSIS_VERSION = "1"
+ANALYSIS_VERSION = "2"
 ERROR_SETS = {"specific classes": SPECIFIC_CLASSES, "truck family": TRUCK_FAMILY}
 ARM_LABELS = {"H": "H: heads only", "D": "D: LoRA in the decoder", "B": "B: LoRA in the backbone",
               "F": "F: full fine-tuning"}
@@ -51,15 +52,20 @@ class RunAnalysis:
     error_samples: dict[str, np.ndarray]  # error set -> [n_boot, 2]
     confusion: dict[str, dict[str, int]]  # truck-family class -> label at the representative query -> boxes
     meta: dict
+    image_ap_samples: np.ndarray | None = None  # [n_boot] AP on resamples of single images (arms B and D)
 
 
-def analyse_run(pred_path, gt: dict, weights: np.ndarray, cache: bool = True) -> RunAnalysis:
-    """Everything the report needs from one run's saved predictions. With `cache`, the result is kept next to
-    the predictions and reused while the prediction file, the images and the resamples are the same."""
+def analyse_run(pred_path, gt: dict, weights: np.ndarray, cache: bool = True,
+                image_weights: np.ndarray | None = None) -> RunAnalysis:
+    """Everything the report needs from one run's saved predictions. `weights`: the resamples of the scene
+    groups. `image_weights`: resamples of single images; with them the AP is also calculated on those. With
+    `cache`, the result is kept next to the predictions and reused while the prediction file, the images and
+    the resamples are the same."""
     pred_path = Path(pred_path)
     cache_path = pred_path.with_name(pred_path.stem.replace("pred_", "analysis_") + ".npz")
     image_ids = sorted(im["id"] for im in gt["images"])
-    key = "|".join([file_sha256(pred_path), ANALYSIS_VERSION, _digest(weights), _digest(np.array(image_ids))])
+    key = "|".join([file_sha256(pred_path), ANALYSIS_VERSION, _digest(weights), _digest(np.array(image_ids)),
+                    _digest(image_weights) if image_weights is not None else "no image resamples"])
     if cache and cache_path.exists():
         with np.load(cache_path) as z:
             if str(z["key"]) == key:
@@ -68,6 +74,7 @@ def analyse_run(pred_path, gt: dict, weights: np.ndarray, cache: bool = True) ->
                     pred_path.parent.name, extra["metrics"], z["vector"], z["samples"],
                     {s: z[f"errors_{i}"] for i, s in enumerate(ERROR_SETS)},
                     {s: z[f"error_samples_{i}"] for i, s in enumerate(ERROR_SETS)}, extra["confusion"], extra["meta"],
+                    z["image_ap_samples"] if "image_ap_samples" in z else None,
                 )
     predictions, meta = load_predictions(pred_path)
     check_same_images(gt, predictions)
@@ -79,12 +86,15 @@ def analyse_run(pred_path, gt: dict, weights: np.ndarray, cache: bool = True) ->
         stats.bootstrap_metrics(primary, weights),
         {s: np.array(error_split(table, names)) for s, names in ERROR_SETS.items()},
         {s: bootstrap_error_split(table, names, weights) for s, names in ERROR_SETS.items()}, confusion, meta,
+        stats.bootstrap_metrics(primary, image_weights)[:, 0] if image_weights is not None else None,
     )
     if cache:
         arrays = {"key": np.array(key), "vector": out.vector, "samples": out.samples,
                   "extra": np.array(json.dumps({"metrics": out.metrics, "confusion": confusion, "meta": meta}))}
         for i, s in enumerate(ERROR_SETS):
             arrays[f"errors_{i}"], arrays[f"error_samples_{i}"] = out.errors[s], out.error_samples[s]
+        if out.image_ap_samples is not None:
+            arrays["image_ap_samples"] = out.image_ap_samples
         tmp = cache_path.with_suffix(".part")
         with open(tmp, "wb") as f:
             np.savez(f, **arrays)
@@ -168,8 +178,13 @@ def build_numbers(analyses: dict[str, list[RunAnalysis]]) -> dict:
                                (family["localized share"]["low"], family["localized share"]["high"])),
         "P3": stats.reading_p3((recovered["B"]["low"], recovered["B"]["high"])),
     }
+    # The same difference with resamples of single images, for one comparison in the report (design §7.3).
+    image_bootstrap = None
+    if all(r.image_ap_samples is not None for arm in ("B", "D") for r in analyses[arm]):
+        by_image = {arm: np.mean([r.image_ap_samples for r in analyses[arm]], axis=0) for arm in ("B", "D")}
+        image_bootstrap = {"B - D": _estimate(mean["B"][0] - mean["D"][0], by_image["B"] - by_image["D"])}
     return {"arms": arms, "differences": differences, "recovered_share": recovered, "errors": errors,
-            "confusion": confusion, "readings": readings}
+            "confusion": confusion, "readings": readings, "image_bootstrap": image_bootstrap}
 
 
 # --- Text ----------------------------------------------------------------------------------
@@ -187,6 +202,10 @@ def _ci(e: dict, signed: bool = False) -> str:
     return f"{_f(e['value'], signed)} [{_f(e['low'], signed)}, {_f(e['high'], signed)}]"
 
 
+def _limit(x: float | None) -> str:
+    return "the chosen limit" if x is None else f"{x:.4f}"
+
+
 def _pct(x: float) -> str:
     return "–" if x != x else f"{100 * x:.1f}%"
 
@@ -199,13 +218,16 @@ def _pct_ci(e: dict, signed: bool = False) -> str:
 
 
 def render(numbers: dict, context: dict) -> str:
-    """The report as markdown. `context`: images, seeds, n_boot, split, trainable (arm -> parameters),
-    selection, gate, figure (file name or None), samples (file names)."""
+    """The report as markdown. `context`: images, groups (scene groups of the split), seeds, n_boot, split,
+    trainable (arm -> parameters), selection, gate, figure (file name or None), samples (file names), and
+    split_meta (`split_meta.json`: the limit and the caps of the scene groups)."""
     arms, readings = numbers["arms"], numbers["readings"]
     b_d = numbers["differences"]["B - D"]
     family = numbers["errors"]["truck family"]["B - D"]
     r_b, r_d = numbers["recovered_share"]["B"], numbers["recovered_share"]["D"]
     n_seeds = len(context["seeds"])
+    split_meta = context.get("split_meta") or {}
+    of_groups = f"the {context['groups']:,} scene groups" if context.get("groups") else "the scene groups"
     lines = [
         "# LoRA position in RF-DETR: backbone against decoder, on MIO-TCD — results", "",
         f"**Question.** {QUESTION}", "",
@@ -221,7 +243,8 @@ def render(numbers: dict, context: dict) -> str:
         f"Recovered share of an arm X: (AP_X − AP_H) / (AP_F − AP_H). Decoder: {_ci(r_d)}. Backbone: {_ci(r_b)}.", "",
         f"*How to read the numbers.* {context['split'].capitalize()} split, {context['images']:,} images. A number of "
         f"an arm is the mean of {n_seeds} seeds ({', '.join(map(str, context['seeds']))}). An interval is the 2.5% to "
-        f"97.5% range of {context['n_boot']} paired bootstrap resamples of the images: all arms and seeds are scored "
+        f"97.5% range of {context['n_boot']} paired bootstrap resamples of {of_groups} of the split: frames of one "
+        "camera are not independent, so a resample draws whole groups. All arms and seeds are scored "
         "on the same resample, and the seeds of an arm are averaged. AP is COCO AP (IoU 0.50 to 0.95) as the mean of "
         "the 10 specific classes, from the 100 best (query, class) pairs of each image. A detection of "
         f"{', '.join(f'`{c}`' for c in IGNORE_UNDER)} on a `{MOTORIZED_VEHICLE}` box is not a true positive and not a "
@@ -245,6 +268,12 @@ def render(numbers: dict, context: dict) -> str:
     for name, d in numbers["differences"].items():
         lines.append(f"| {name.replace(' - ', ' − ')} | {_ci(d, signed=True)} | "
                      f"{d['seed_pairs_in_agreement']} of {d['seed_pairs']} |")
+
+    if numbers.get("image_bootstrap"):
+        lines += ["", f"*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups: {_ci(b_d, signed=True)}. "
+                  f"With resamples of single images: {_ci(numbers['image_bootstrap']['B - D'], signed=True)}. Frames of "
+                  "one camera are not independent, so the image interval is too narrow. All other intervals and all "
+                  "readings of this report use the scene groups."]
 
     lines += ["", "## Error split: boxes and labels", "",
               "Candidates: the 50 queries of an image with the highest class score. A ground-truth box is localized "
@@ -326,6 +355,7 @@ def render(numbers: dict, context: dict) -> str:
         lines += ["", "## Sample images", "",
                   "White: ground truth. Colour: detections with a score of 0.5 or more, by arm (seed 0).", ""]
         lines += [f"![{name}]({name})" for name in context["samples"]]
+    caps = split_meta.get("caps") or {}
     lines += ["", "## Limits", "",
               "- **One model and one dataset.** The answer is for RF-DETR-base on traffic-camera images. It is not a "
               "general law.",
@@ -333,8 +363,19 @@ def render(numbers: dict, context: dict) -> str:
               "AP_F is low for that reason, the recovered shares are too high.",
               "- **Equal counts are not equal capacity.** Rank 33 is 13% of the full rank of a decoder matrix; rank 9 "
               "is 2% of a backbone matrix. This is to the advantage of the decoder.",
-              "- **Scene groups are an estimate.** Some cameras are possibly in two splits.",
-              "- **The intervals show the dependence on the test images.** They do not show the variance between "
+              "- **Scene groups are an estimate.** A scene group is a connected set of images that are linked at a "
+              f"cosine similarity of {_limit(split_meta.get('limit'))} or more. A group can hold more than one "
+              "camera: the lowest limit joins similar cameras. This is safe for the split, and it makes the groups "
+              "fewer and larger.",
+              "- **Two parts of one camera can stay in two groups** if no chain of near frames joins them (for "
+              "example day and night). The scene check finds this only when the two parts are nearer than all other "
+              "cameras.",
+              f"- **The caps change the weight of the cameras.** A group gives at most {caps.get('test', 300)} images "
+              f"to the test split and at most {caps.get('val', 100)} to the val split. A camera with many frames has "
+              "no more weight in the test split than a camera at the cap. The train subset keeps the natural weights.",
+              "- **The 20% rule is a choice.** The search for the limit stops when the largest group has more than "
+              "20% of the images. No camera is expected to have 20% of the images.",
+              "- **The intervals show the dependence on the test scenes.** They do not show the variance between "
               f"seeds; the tables give the {n_seeds} seed values and the seed pairs for that.",
               "- **Not a leaderboard number.** The public MIO-TCD leaderboard uses another split, all the training "
               "data and another protocol. Its numbers and these numbers are not a comparison.",
@@ -351,13 +392,16 @@ def analyse(runs_root, data_root, splits_dir, out_dir, split: str = "test", n_bo
     if missing:
         raise FileNotFoundError("these predictions do not exist yet:\n  " + "\n  ".join(missing))
     gt = split_ground_truth(data_root, splits_dir, split)
-    weights = stats.resample_weights(len(gt["images"]), n_boot)
+    groups = split_groups(gt, splits_dir)
+    weights = stats.group_resample_weights(groups, n_boot)
+    image_weights = stats.resample_weights(len(gt["images"]), n_boot)  # for one comparison: AP_B - AP_D
     analyses = {}
     for arm, dirs in runs.items():
         analyses[arm] = []
         for d in dirs:
             print(f"[analyse] {d.name}", flush=True)
-            analyses[arm].append(analyse_run(d / f"pred_{split}.npz", gt, weights, cache))
+            analyses[arm].append(analyse_run(d / f"pred_{split}.npz", gt, weights, cache,
+                                             image_weights if arm in ("B", "D") else None))
     numbers = build_numbers(analyses)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -373,8 +417,11 @@ def analyse(runs_root, data_root, splits_dir, out_dir, split: str = "test", n_bo
     )
     gate_path = runs_root / GATE
     samples_dir = out_dir / "samples"
+    meta_path = Path(splits_dir) / "split_meta.json"
     context = {
-        "images": len(gt["images"]), "seeds": list(seeds), "n_boot": n_boot, "split": split, "trainable": trainable,
+        "images": len(gt["images"]), "groups": int(len(np.unique(groups))), "seeds": list(seeds), "n_boot": n_boot,
+        "split": split, "trainable": trainable,
+        "split_meta": json.loads(meta_path.read_text()) if meta_path.exists() else None,
         "selection": read_selection(runs_root), "gate": json.loads(gate_path.read_text()) if gate_path.exists() else None,
         "figure": figure,
         "samples": sorted(f"samples/{p.name}" for p in samples_dir.glob("*.png")) if samples_dir.exists() else [],

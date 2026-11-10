@@ -2,6 +2,7 @@
 
 - **Date:** 2026-11-10
 - **Status:** ready to build.
+- **Changed:** 2026-11-10, change 1: scene groups by links, a split with a cap for each group, and a bootstrap of scene groups (§4.3, §4.5, §7.3, §11). The first method, k-means, failed the scene check on MIO-TCD: `docs/build_notes.md` §8. All other sections are as they were.
 - **Builds on:** the truck project in `~/detr-lora`. See the README sections "After the fourth round" and "Two-stage classification", `detr-lora/results/clip_second_stage.md`, and the code in `detr-lora/src/detr_lora/model/lora.py`, `detr-lora/src/detr_lora/diagnostics.py` and `detr-lora/src/detr_lora/separation.py`.
 - **Home:** a new repository. This file is here because the question comes from this repository's results. Move it when the new repository exists.
 
@@ -78,14 +79,102 @@ Convert the CSV to one COCO-format JSON. Read image sizes from the JPEG headers.
 
 The CSV has no camera ID. The project estimates one.
 
-1. Calculate one embedding for each labelled image: the mean of the last feature map of the frozen backbone, at 224 px.
-2. Normalise the embeddings to unit length. Cluster them with k-means, k = 1,000. A cluster is a *scene group*.
-3. Put the groups in a random order (fixed seed). Assign whole groups to the test split until it has 10,000 images or more. Then assign whole groups to the val split until it has 2,000 images or more. The remaining images are the train pool.
-4. The train subset is 8,000 images from the train pool (fixed seed). It is the same for all runs. §10 gives the rule to change this number.
+The scene check of §4.5 asks one thing: no test image has a near image in the train pool. The method makes "near images are in one group" true by construction.
 
-If the file order or the image IDs show the camera, use that as the group and do not cluster.
+**Embedding.** One embedding for each labelled image: the mean of the last feature map of the frozen backbone, at 224 px, with unit length. *Similarity* is the cosine similarity, and *distance* is 1 − similarity.
+
+**Scene groups for a limit.** For a limit L, link each pair of images with a similarity of L or more. A *scene group* is a connected set of this graph. An image with no link is a group of one image. The groups are a function of the embeddings and L only. They do not depend on a seed or on the implementation.
+
+**Candidate limits.**
+
+- d_near is the median, for all images, of the distance to the nearest image.
+- d_rand is the median distance of 110,000 random pairs.
+- The 17 candidates have distances at equal steps of log distance from d_near to d_rand: L_k = 1 − d_near × (d_rand / d_near)^(k/16), for k = 0 to 16.
+
+An example, with numbers near those of the first run on MIO-TCD: for a nearest-image similarity of 0.996 and a random-pair similarity of 0.914, the candidates go from 0.996 to 0.914, and each step multiplies the distance by 1.21.
+
+**Over-linked.** A limit is *over-linked* if one of these is true:
+
+- the largest group has more than 20% of the images;
+- the split (below) is not possible with its groups.
+
+**The search.** An automatic search sets the limit. Go from the highest candidate to the lowest. Stop at the first over-linked limit. The chosen limit is the candidate before it.
+
+- A lower limit can only join groups, so the search has one stop point.
+- The lowest limit that is not over-linked has the most links. It gives a camera the smallest chance to be in two groups.
+- If the first candidate is over-linked, there is no limit: go to "If no limit passes".
+- The search needs no work by a person. The scene check of §4.5 stays as it is.
+
+Record one line for each candidate in `split_meta.json`: the limit, the number of groups, the share of the largest group, and "over-linked" with its cause.
+
+**Implementation.** The implementation is free. The group check of §4.5 decides if it is correct. One method that worked in the test below:
+
+1. Calculate the 100 nearest images of each image, one time.
+2. For a limit, take the links of these lists and calculate the connected sets (`scipy.sparse.csgraph.connected_components`).
+3. Find each image whose most similar image outside its group is at or above the limit. Add that link. Do step 2 again. Repeat until there is no such image.
+
+Step 3 is necessary. The lists do not hold all links of an image in a large group. One pass of step 3 compares all pairs of images; do it on the GPU, in blocks of rows.
+
+**The split.**
+
+1. Put the groups in a random order (fixed seed).
+2. **Test:** groups go to the test split until it has 10,000 images or more, and each specific class has 100 boxes or more. A group gives at most 300 images, drawn at random (fixed seed).
+3. **Val:** the next groups go to the val split until it has 2,000 images or more, and each specific class has 30 boxes or more. A group gives at most 100 images.
+4. **Train pool:** all images of all other groups.
+5. **Not used:** the images of a test or val group that are over its cap. They are in no split. Write them to `unused.txt`.
+6. **Train subset:** 8,000 random images of the train pool (fixed seed). It is the same for all runs. §10 gives the rule to change this number.
+
+Count images and boxes on the images that a split uses, not on the full groups. With the caps, no camera can dominate a split.
+
+The caps give the minimum number of groups: 34 in the test split (10,000 / 300) and 20 in the val split (2,000 / 100). §7.3 needs these.
+
+The split is *not possible* if the groups end before the val split is complete, or if the train pool has fewer than 8,000 images.
+
+**If no limit passes.** A split fails if the search finds no limit, or if the scene check fails at the chosen limit. Do not try other limits of the same embedding: a higher limit cuts more cameras, and a lower limit is over-linked.
+
+*Step 1: a second embedding, one time.* It keeps the position of things in the picture.
+
+- For each image, take the last feature map of the backbone at 224 px (16 × 16 positions, 384 channels).
+- Calculate the mean in each cell of a 4 × 4 grid, and join the 16 cells: 6,144 numbers.
+- Subtract the mean of all images. Give each row unit length.
+- Do the groups, the search, the split and the checks again.
+
+The mean feature tells what is in a picture. The grid also tells where it is. Two cameras on similar roads show the same things in other positions. This embedding is not tested. It is 2.7 GB as float32; float16 is sufficient for storage.
+
+*Step 2: Decision needed.* If the second embedding fails, the cameras are not separable with these tools. The alternatives:
+
+- *Continue with a random image split* (recommended). State in the report that the test cameras are also in training, and that the answer is for cameras that the model saw. State that P1 can be to the advantage of arms B and F, which can learn the backgrounds.
+- *Stop*, and report that the dataset gives no split by camera.
+
+If the file order or the image IDs show the camera, use that as the group and do not link.
 
 The splits are files of image IDs. Commit them. Do not commit images.
+
+**The first method, and why it failed.** The first version of this section clustered the embeddings with k-means, k = 1,000, and gave whole clusters to a split. On MIO-TCD it failed the scene check (`docs/build_notes.md` §8):
+
+- In 125 of 125 pairs, the nearest train-pool image of a test image showed the same camera.
+- The mean similarity of such a pair was 0.993 for the scene split and 0.996 for a random split. The scene split removed almost nothing.
+
+These facts show two things. The embedding is good at short range: the nearest image is the same camera each time. K-means does not use that: it cuts the space into 1,000 cells, and a cell border goes through the frames of a camera and puts near images in two groups.
+
+**What was tested, and what was not.** The method was tested on synthetic data, with the code of the project: `scripts/scene_split_simulation.py`. It makes 150 invented cameras with 24,171 frames. Each frame is a camera centre, a day-to-night change, and noise. Four cases go from "cameras well apart" (A) to "not separable" (D). The true camera takes the place of the person in the scene check.
+
+| Case | K-means: scene check | Chosen limit | Groups (150 cameras) | Scene check | Failures of the split check | A limit from a count by a person |
+|---|---|---|---|---|---|---|
+| A | 46% same camera | 0.9689 | 148 | 0% | 0 | 150 groups |
+| B | 59% | 0.9837 | 100 | 0% | 0 | 2 groups, largest 100% |
+| C | 82% | 0.9954 | 150 | 0% | 0 | 1 group |
+| D | 48% | none: the first limit is over-linked | | | | 1 group |
+
+- K-means fails the scene check in each case, as it did on MIO-TCD.
+- The search finds a limit that passes in A, B and C.
+- In D the search finds no limit. The failure signal works.
+- In C, one step higher fails the scene check (8%), and one step lower is over-linked. The interval of good limits can be one step wide.
+- Step 3 of the implementation added links in 5 of the 35 limits.
+- A smaller copy of case D (40 cameras, in `tests/test_scripts.py`) shows the second failure signal: the search accepts its first candidate, the two automatic checks pass, and the scene check finds the same camera in 85% of the pairs. The scene check by a person is necessary.
+- The last column is a rule that this design does not use: a person labels 25 pairs in each bin of similarity, and the limit is the similarity below which 1 pair of 25 or fewer shows the same camera. It set the limit too low in three of the four cases.
+
+Not tested: MIO-TCD. The camera model is invented. The test shows that the mechanics and the failure signals work. It does not show that the cameras of MIO-TCD are separable in the real embedding. Only the scene check on the real images shows that.
 
 ### 4.4 `motorized_vehicle`
 
@@ -99,9 +188,18 @@ The dataset uses this class for vehicles that are too small to identify. The off
 
 - **Counts:** the converter gives the three reference counts of §4.1. Find the cause of each difference.
 - **Label completeness:** draw 100 random images with their boxes. Count the vehicles and pedestrians that have no box. If more than 5% have no box, the labels are not complete. Record the rate and stop: this was the first cause of failure in the truck project.
-- **Class counts:** each specific class has 100 boxes or more in the test split and 30 or more in the val split. If not, make the splits larger.
+- **Class counts:** each specific class has 100 boxes or more in the test split and 30 or more in the val split. The split of §4.3 takes groups until this is true.
 - **No overlap:** no image and no scene group is in two splits.
-- **Scene check:** for 200 random test images, find the nearest train-pool image by cosine similarity. Look at the 200 pairs. Accept the split if 10 pairs or fewer show the same camera view. Do the same count for a random image split, for the report.
+- **Group check (automatic):** for each image, find its most similar image outside its group. No such similarity is at or above the chosen limit. The count of failures must be 0.
+- **Split check (automatic):**
+  - No test image and no val image has a train-pool image at or above the limit.
+  - No test image has a val image at or above the limit.
+  - The test split has 34 groups or more, and the val split has 20 or more.
+
+  The first two lines follow from the group check. They are a guard for the split code.
+- **Scene check (a person):** for 200 random test images, find the nearest train-pool image by cosine similarity. Look at the 200 pairs. Accept the split if 10 pairs or fewer show the same camera view. Do the same count for a random image split, for the report. After the split check, each of these pairs has a similarity below the limit. The person now answers one question: is the limit low enough?
+
+The group check, the split check and the scene check come in this order.
 
 ## 5. Model and arms
 
@@ -209,7 +307,9 @@ Calculate them for all specific classes and for the truck family. Report the con
 
 ### 7.3 Uncertainty
 
-- **Paired bootstrap:** resample the test images with replacement, 400 times. In each resample, score all arms and all seeds on the same images, and take the mean of the seeds for each arm. The interval is the 2.5% to 97.5% range. Reuse `diagnostics.py`.
+- **Paired bootstrap of scene groups:** frames of one camera are not independent, and a bootstrap that resamples images gives intervals that are too narrow. So resample the scene groups of the test split with replacement, 400 times: for a split with G groups, draw G groups. The weight of an image is the number of times its group was drawn. In each resample, score all arms and all seeds on the same images, and take the mean of the seeds for each arm. The interval is the 2.5% to 97.5% range. Reuse `diagnostics.py`; `evaluation.average_precision` and `errors.bootstrap_error_split` take the weights with no change.
+- **All intervals and readings use the group bootstrap:** P1, P2, P3 and the recovered share on the test split, and the gate on the val split.
+- **For the report:** show the image interval of AP_B − AP_D next to the group interval, one time. The difference shows the reader why the unit is important.
 - **Recovered share:** calculate R_X in each resample from the seed means. Its interval comes from the same 400 values.
 - **Seeds:** report AP for each seed, and the number of seed pairs that agree in sign with the mean difference (`seed_pairings`).
 - **The gate** uses the val split and seed 0 only.
@@ -221,15 +321,15 @@ A suggested layout for the new repository. Tests are CPU-only with synthetic fix
 | Unit | Responsibility | Source |
 |---|---|---|
 | `data/miotcd.py` | CSV to COCO JSON; counts; class order. | New |
-| `data/scenes.py` | Embeddings, k-means, scene groups, split files, nearest-neighbour sheet. | New |
+| `data/scenes.py` | Embeddings, neighbour lists, scene groups for a limit, the search, the split with caps, the group check and the split check, split files, nearest-neighbour sheet. | New |
 | `data/dataset.py` | Dataset and collate function with the library's image processor. | New |
 | `model/lora.py` | `LoRALinear`, `inject_lora` with a layer filter, `merge_lora`, `count_params`. | Truck project, one change |
 | `model/arms.py` | Load the checkpoint, make the class heads, freeze by name, add the adapters of an arm, print the parameter table. | New |
 | `training.py`, `engine.py` | Optimiser groups, schedule, one epoch, resumable run. | Truck project, adapted |
 | `evaluation.py` | Predictions to COCO results; ignore regions; AP tables; box AP. | New |
 | `errors.py` | Localized share, label accuracy, confusion table. | From `separation.py` |
-| `stats.py` | Paired bootstrap, recovered share, the readings of §2 as text. | From `diagnostics.py` |
-| `scripts/` | `prepare_data`, `make_split`, `train`, `evaluate`, `analyse`. | New |
+| `stats.py` | Paired bootstrap of scene groups, recovered share, the readings of §2 as text. | From `diagnostics.py` |
+| `scripts/` | `prepare_data`, `make_split`, `train`, `evaluate`, `analyse`; `scene_split_simulation` (the test of §4.3). | New |
 | Library | Model, weights, loss, image processor, `pycocotools`. | Borrowed |
 
 ## 9. Build stages and checks
@@ -239,7 +339,7 @@ Each stage ends with a check. Do not start a stage before the check of the stage
 | Stage | Work | Check |
 |---|---|---|
 | 0. Spike | Load the checkpoint. Print the configuration and the parameter table. Draw detections on 20 images. Measure images per second and peak memory on the T4 for one H step and one F step. | The numbers of §5.1 are confirmed or corrected. A change to `q_proj` of backbone layer 11 changes no logit; a change to each of layers 0–10 does. |
-| 1. Data | Converter, scene groups, split files. | The five checks of §4.5. |
+| 1. Data | Converter, scene groups, split files. | The checks of §4.5. |
 | 2. Evaluation | AP with ignore regions, box AP, the error split. | Synthetic tests: a `car` detection on a `motorized_vehicle` box changes no AP; the same detection on background, with the highest score of the image set, decreases the `car` AP. The COCO checkpoint with no training scores a low AP50 above zero on `car` and `bus` (reference: 0.20 in §2). An AP near zero shows an error in the box format or the resize. |
 | 3. Arms | `arms.py` and the layer filter. | The parameter table equals §5.2. At step 0 each arm gives the output of the start model exactly. Each adapter changes the output when its B matrix is not zero. The merge difference is below 1e-4. |
 | 4. Training loop | One configuration file for each arm. | On 16 images, arm F reaches AP50 above 0.9, and the loss of arms H, D and B decreases. A stopped and resumed run continues the loss curve. |
@@ -261,6 +361,10 @@ Each stage ends with a check. Do not start a stage before the check of the stage
 - **A small difference between H and F.** The gate stops the project early.
 - **F is not fully tuned.** With no weight averaging and no layer-wise decay, AP_F is possibly low. Then R_B is too high. The learning-rate choice decreases this risk; the report must state it.
 - **Scene groups are an estimate.** Some cameras are possibly in two splits. The scene check gives the rate.
+- **A group can hold more than one camera.** The lowest limit joins similar cameras. This is safe for the split, and it makes the groups fewer and larger.
+- **Two parts of one camera can stay in two groups** if no chain of near frames joins them (for example day and night). The scene check finds this only when the two parts are nearer than all other cameras.
+- **The caps change the weight of the cameras.** A camera with many frames has no more weight in the test split than a camera with 300. The train subset keeps the natural weights.
+- **The 20% rule is a choice.** No camera is expected to have 20% of the images. If the largest group at the chosen limit is near 20%, look at 50 of its images before you accept it.
 - **One model and one dataset.** The answer is for RF-DETR-base on traffic-camera images. It is not a general law.
 - **The library port.** Numbers can be different from those of the original `rfdetr` package.
 - **Memory.** Training uses 3,900 queries. Stage 0 sets the batch size.

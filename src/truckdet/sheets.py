@@ -99,6 +99,16 @@ def pair_sheets(pairs: list[tuple[str, str, float]], image_dir, out_dir, prefix:
     return out
 
 
+def group_sheet(image_ids: list[str], image_dir, out_path, columns: int = 10) -> Path:
+    """Images of one scene group on one sheet: do they show one camera, or a few similar cameras?"""
+    tiles = []
+    for image_id in image_ids:
+        with Image.open(Path(image_dir) / f"{image_id}.jpg") as im:
+            tiles.append(im.convert("RGB"))
+    contact_sheet(tiles, list(image_ids), columns=columns, tile_size=(240, 180), out_path=out_path)
+    return Path(out_path)
+
+
 def detection_image(image: Image.Image, annotations: list[dict], by_arm: dict[str, tuple], min_score: float = 0.5) -> Image.Image:
     """Ground truth (white, label above) and each arm's detections (its colour, label below). `by_arm`: arm ->
     (scores [K, C], boxes [K, 4] xyxy) of the image's queries; a query is drawn with its top class if that

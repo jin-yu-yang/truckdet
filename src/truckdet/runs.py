@@ -20,6 +20,7 @@ from .checkpoint import _load, load_checkpoint
 from .config import ARMS, Config, config_from_dict, make_run_name, parse_run_name
 from .data.dataset import MioTcdDetection, collate
 from .data.miotcd import SPECIFIC_CLASSES, TRUCK_FAMILY, load_annotations, split_image_ids, subset
+from .data.scenes import read_groups
 from .errors import box_table, error_split
 from .evaluation import (
     load_predictions, merge_check, predict, primary_matches, metric_vector, save_predictions, score_predictions,
@@ -32,6 +33,7 @@ SPLITS = ("val", "test")
 SEEDS = (0, 1, 2)
 SELECTION = "selection.json"
 GATE = "gate.json"
+SCENE_GROUPS = "scene_groups.csv"
 # Exit code of a script whose check has a negative outcome (counts differ, a split is too small, the gate fails).
 # Not 1 (an exception) and not 2 (a wrong argument): the notebook goes on after this code only.
 CHECK_FAILED = 3
@@ -41,6 +43,17 @@ def split_ground_truth(data_root, splits_dir, split: str, coco: dict | None = No
     """The plain COCO ground truth of a split (no ignore regions)."""
     coco = coco if coco is not None else load_annotations(Path(data_root) / ANNOTATIONS)
     return subset(coco, split_image_ids(coco, Path(splits_dir) / f"{split}.txt"))
+
+
+def split_groups(gt: dict, splits_dir) -> np.ndarray:
+    """[I] the scene group of each image of `gt`, with the images in sorted id order: the order of the bootstrap
+    weights. The bootstrap resamples scene groups (design §7.3), so it needs `scene_groups.csv` of the split."""
+    path = Path(splits_dir) / SCENE_GROUPS
+    if not path.exists():
+        raise FileNotFoundError(f"{path} does not exist: the bootstrap resamples scene groups and needs the group "
+                                "of each image (scripts/make_split.py writes this file)")
+    by_id = read_groups(path)
+    return np.array([by_id[im["miotcd_id"]] for im in sorted(gt["images"], key=lambda im: im["id"])], dtype=np.int64)
 
 
 def load_run_model(run_dir, device, model_loader=None):
@@ -245,10 +258,12 @@ def final_runs(runs_root, seeds=SEEDS, arms=ARMS) -> dict[str, list[Path]]:
 
 def run_gate(runs_root, data_root, splits_dir, n_boot: int = stats.N_BOOT) -> dict:
     """The gate of design §2: AP_F - AP_H on the val split with seed 0, from the saved predictions of the
-    chosen H and F runs. Writes `gate.json`."""
+    chosen H and F runs. The standard error is that of a bootstrap of the scene groups of the val split.
+    Writes `gate.json`."""
     selection = read_selection(runs_root)
     gt = split_ground_truth(data_root, splits_dir, "val")
-    weights = stats.resample_weights(len(gt["images"]), n_boot)
+    groups = split_groups(gt, splits_dir)
+    weights = stats.group_resample_weights(groups, n_boot)
     point, samples = {}, {}
     for arm in ("H", "F"):
         pred_path = Path(runs_root) / selected_run_name(selection, arm, 0) / "pred_val.npz"
@@ -259,7 +274,7 @@ def run_gate(runs_root, data_root, splits_dir, n_boot: int = stats.N_BOOT) -> di
         samples[arm] = stats.bootstrap_metrics(matches, weights)[:, 0]
     result = stats.gate(point["H"], point["F"], samples["H"], samples["F"])
     result.update(runs={arm: selected_run_name(selection, arm, 0) for arm in ("H", "F")}, n_boot=n_boot,
-                  val_images=len(gt["images"]))
+                  val_images=len(gt["images"]), val_groups=int(len(np.unique(groups))))
     write_json(Path(runs_root) / GATE, result)
     return result
 
@@ -267,9 +282,10 @@ def run_gate(runs_root, data_root, splits_dir, n_boot: int = stats.N_BOOT) -> di
 def gate_text(result: dict) -> str:
     verdict = ("The gate passes: continue with the main runs." if result["passed"] else
                "The gate fails: stop. The data cannot separate the arms.")
+    groups = f" (resamples of the {result['val_groups']} scene groups)" if result.get("val_groups") else ""
     return (f"AP_F − AP_H on the val split (seed 0) = {result['difference']:+.3f} "
             f"(AP_H {result['AP_H']:.3f}, AP_F {result['AP_F']:.3f}); bootstrap standard error "
-            f"{result['bootstrap_se']:.4f}; the difference is {result['ratio']:.1f} times its standard error. "
+            f"{result['bootstrap_se']:.4f}{groups}; the difference is {result['ratio']:.1f} times its standard error. "
             f"Needed: at least {result['min_difference']:.2f} AP and at least {result['min_ratio']:.0f} times the "
             f"standard error. {verdict}")
 

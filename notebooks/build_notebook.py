@@ -30,7 +30,7 @@ The times of `gate` and `main` are the design's estimate (an F run or a B run 2 
 
 **If Colab disconnects or the session ends,** *Run all* again with the same `STAGE`, also in a later session: the dataset and the caches are on Drive, finished runs train nothing, and the interrupted run resumes from its last finished epoch.
 
-**Three checks need your eyes** (stage `data`): the label completeness sheets, the scene-check sheets, and the counts. The cell prints what to count and the limit.
+**Three checks need your eyes** (stage `data`): the label completeness sheets, the scene-check sheets, and the counts. The cell prints what to count and the limit. The scene groups come from an automatic search (design §4.3); two automatic checks run before the scene check. A later stage does not start on a split that did not pass them.
 
 **Output:** `MyDrive/truckdet/results_bundle.zip` (stage `report`), and `MyDrive/truckdet/splits/` (stage `data`; commit these files to the repository as `splits/`).
 """
@@ -52,6 +52,11 @@ RESULTS = f"{DRIVE_ROOT}/results"
 # each arm at BATCH_SIZE. If arm F or B does not fit in the T4's 15 GB, use 2 x 8.
 BATCH_SIZE, ACCUM_STEPS = 4, 4
 assert BATCH_SIZE * ACCUM_STEPS == 16, "the design fixes the effective batch at 16 images"
+
+# The embedding of the scene groups (stage "data"). "grid" is the second embedding of design §4.3: use it one
+# time, and only if "mean" gives no limit or its split fails the scene check.
+EMBEDDING = "mean"
+assert EMBEDDING in ("mean", "grid")
 
 SEEDS = [0, 1, 2]
 STAGES = ["spike", "data", "checks", "gate", "main", "report"]
@@ -177,7 +182,7 @@ if os.path.exists(f"{CACHE}/annotations.json") and not os.path.exists(f"{DATA_RO
 COMMON = f"--data-root {DATA_ROOT} --splits-dir {SPLITS}"
 """
 
-PREPARE = """# Stage 1. Converter, scene groups, split files, and the five checks of design §4.5.
+PREPARE = """# Stage 1. Converter, scene groups, split files, and the checks of design §4.5.
 if at("data"):
     # The dataset's own evaluation code: confirm the classes that get an ignore region (design §4.4).
     if not glob.glob(f"{LOCAL}/code/**/localization_evaluation.py", recursive=True):
@@ -192,26 +197,51 @@ if at("data"):
     for name in ("annotations.json", "counts.json"):
         shutil.copy(f"{DATA_ROOT}/{name}", f"{CACHE}/{name}")
 
-    # If a class has too few boxes in the test or val split of the design's size, the script takes more
-    # scene groups for that split and prints the new size (design §4.5).
+    # Scene groups: images that are linked at or above a similarity limit; an automatic search sets the limit
+    # (design §4.3). Exit code 3: an automatic check failed, or the search found no limit (then there is no split).
+    embeddings = f"{CACHE}/embeddings.npy" if EMBEDDING == "mean" else f"{CACHE}/embeddings_grid.npy"
     split_failed = run(f"python scripts/make_split.py --data-root {DATA_ROOT} --splits-dir {SPLITS} "
-                       f"--embeddings {CACHE}/embeddings.npy --sheets-dir {CHECKS}/scenes", allowed=(0, 3))
+                       f"--embedding {EMBEDDING} --embeddings {embeddings} --sheets-dir {CHECKS}/scenes", allowed=(0, 3))
     run(f"python scripts/spike.py --image-dir {DATA_ROOT}/train --sheet {CHECKS}/coco_detections.jpg")
 
+    with open(f"{SPLITS}/split_meta.json") as f:
+        split_meta = json.load(f)
+    if split_meta.get("limit") is None:
+        if EMBEDDING == "mean":
+            next_step = 'Next (design §4.3, "If no limit passes"): set EMBEDDING = "grid" and Run all, one time.'
+        else:
+            next_step = ("The second embedding gave no limit too. A decision is needed (design §4.3): continue with a "
+                         "random image split, or stop.")
+        raise SystemExit('Stage 1 stops: the search found no limit (see "[search]" and "NO LIMIT" above), so there '
+                         "is no split.\\n" + next_step)
+    automatic = 'FAILED (see "[check]" above). Do not go on' if split_failed else "passed"
+    counts = ("DIFFERENT from the reference counts (see above): find the cause of each difference" if counts_differ
+              else "equal to the reference counts")
     raise SystemExit(
         "Stage 1 finished. Before you go on:\\n"
-        f"1. Counts: {'DIFFERENT from the reference counts (see above): find the cause of each difference' if counts_differ else 'equal to the reference counts'}.\\n"
-        f"2. Class counts and no overlap: {'FAILED (see above): two splits share an image or a scene group, or the dataset cannot give each class its minimum of boxes' if split_failed else 'passed'}.\\n"
+        f"1. Counts: {counts}.\\n"
+        f"2. Automatic checks (no overlap, class counts, group check, split check): {automatic}. "
+        f"Limit {split_meta['limit']:.4f}; {split_meta['groups']:,} scene groups; the largest has "
+        f"{split_meta['largest_group_share']:.1%} of the images.\\n"
         f"3. Label completeness: open {CHECKS}/labels. Count the vehicles and pedestrians that have no box. "
         "If more than 5% have no box, the labels are not complete: record the rate and stop.\\n"
         f"4. Scene check: open {CHECKS}/scenes. Count the scene_split pairs that show the same camera view; accept "
-        "the split if 10 pairs or fewer do. Do the same count on the random_split sheets, for the report.\\n"
-        f"5. Look at {CHECKS}/coco_detections.jpg: the COCO checkpoint's detections on 20 images.\\n"
-        f"6. Download {SPLITS} and commit its files to the repository as splits/ (code and split lists only; no images).\\n"
-        "Then set STAGE = \\"checks\\" and Run all."
+        "the split if 10 pairs or fewer do. Each pair is below the limit now: the question is if the limit is low "
+        "enough. Do the same count on the random_split sheets, for the report. If the scene check fails, do not try "
+        'other limits: set EMBEDDING = "grid" and Run all, one time (design §4.3).\\n'
+        f"5. Look at {CHECKS}/scenes/largest_group.jpg: 50 images of the largest scene group. If its share is near "
+        "20%, look at them before you accept the split.\\n"
+        f"6. Look at {CHECKS}/coco_detections.jpg: the COCO checkpoint's detections on 20 images.\\n"
+        f"7. Download {SPLITS} and commit its files to the repository as splits/ (code and split lists only; no images).\\n"
+        'Then set STAGE = "checks" and Run all.'
     )
 if after("data"):
-    assert os.path.exists(f"{SPLITS}/train.txt"), f"{SPLITS} has no split files: run stage \\"data\\" first"
+    assert os.path.exists(f"{SPLITS}/split_meta.json"), f'{SPLITS} has no split files: run stage "data" first'
+    with open(f"{SPLITS}/split_meta.json") as f:
+        split_meta = json.load(f)
+    assert split_meta.get("limit") is not None and split_meta.get("checks", {}).get("passed"), (
+        f'{SPLITS} has no split that passed the automatic checks of stage "data" (an old split, or a search with no '
+        'limit): run stage "data" again')
 """
 
 CHECKS_CELL = """# Stages 2 to 4. The evaluation on real data, and the training loop on 16 images.

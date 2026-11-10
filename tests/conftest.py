@@ -32,6 +32,8 @@ def splits_dir(tmp_path):
     folder.mkdir()
     for name, part in (("train", ids[:12]), ("train_pool", ids[:12]), ("val", ids[12:18]), ("test", ids[18:])):
         write_ids(folder / f"{name}.txt", part)
+    # Two images in each scene group: the val split and the test split have 3 groups each.
+    (folder / "scene_groups.csv").write_text("image_id,scene_group\n" + "".join(f"{i},{k // 2}\n" for k, i in enumerate(ids)))
     return folder
 
 

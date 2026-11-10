@@ -10,12 +10,16 @@ as a record; see `docs/build_notes.md` §8.
 
 | File | Content |
 |---|---|
-| `test.txt` | MIO-TCD image IDs of the test split: whole scene groups, 10,000 images or more |
-| `val.txt` | The val split: whole scene groups, 2,000 images or more |
-| `train_pool.txt` | All other labelled images |
+| `test.txt` | MIO-TCD image IDs of the test split: 10,000 images or more, at most 300 of one scene group |
+| `val.txt` | The val split: 2,000 images or more, at most 100 of one scene group |
+| `train_pool.txt` | All images of all other scene groups |
 | `train.txt` | The train subset: 8,000 images of the train pool, the same for all runs |
-| `scene_groups.csv` | The scene group of every labelled image |
-| `split_meta.json` | Seed, group count, images and boxes per class in each split |
+| `unused.txt` | The images of a test or val group that are over its cap: in no split |
+| `scene_groups.csv` | The scene group of every labelled image. The bootstrap of the report resamples these groups |
+| `split_meta.json` | The limit and the record of its search, the caps, groups, images and boxes per class in each split, and the results of the automatic checks |
+
+A scene group is a connected set of images that are linked at a cosine similarity at or above a limit (design
+§4.3). `rejected_kmeans_k1000/` has no `unused.txt`: the first method gave whole groups to a split.
 
 An image ID is the file name without `.jpg`, with its leading zeros. The files hold IDs only. No images are
 in this repository.

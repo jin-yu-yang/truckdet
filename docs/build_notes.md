@@ -1,6 +1,7 @@
 # Build notes
 
-What the build confirmed, corrected and decided. The design is `docs/design.md`; it is not changed.
+What the build confirmed, corrected and decided. The design is `docs/design.md`. It was changed one time, after
+the scene check failed (change 1, 2026-11-10: §4.3, §4.5, §7.3 and §11; §9 below).
 Each item gives the section of the design and the place in the code.
 
 Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Roboflow/rf-detr-base`.
@@ -13,7 +14,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 0 checks with the timing (`scripts/spike.py --time`) | Real checkpoint, Colab T4, fp16 | All passed; speed and memory in §6 |
 | Stage 1 (`prepare_data.py`, `make_split.py`), first run | MIO-TCD, Colab T4 | The counts and the ignore classes are confirmed; the val split of the design's size has too few boxes of three classes (§7) |
 | Stage 1, second run | MIO-TCD, Colab T4 | The class counts pass with a val split of 5,724 images. **The scene check fails:** the scene groups do not separate the cameras (§8). The split is not accepted |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 132 passed |
+| The new split method of design change 1 (§9) | Invented cameras (`scripts/scene_split_simulation.py`), CPU | The search, the split and the two automatic checks work, and the failure signals work. **Not run on MIO-TCD** |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 147 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -139,7 +141,8 @@ value on 1e-6, 3e-6, 1e-5, …, 1e-2. The choices are in `runs/selection.json`.
   `scaler_skips` counts optimizer steps that the fp16 gradient scaler did not apply. The scaler
   lowers its scale after such a step; a few at the start of a run are normal, and they are in
   `metrics.jsonl`.
-- **k-means is scikit-learn's**, with one start and a fixed seed.
+- **The scene groups** come from `scipy`'s connected sets of a graph (§9). The first method was scikit-learn's
+  k-means, with one start and a fixed seed.
 - **Read the pairs of the scene check, not the similarity.** The mean feature of the backbone has a
   large part that all images share: two unrelated photographs had a cosine similarity of about 0.93
   (258 LVIS images). The sheets print the number, but only the two pictures show a camera view.
@@ -313,3 +316,88 @@ The design gives no rule for a failed scene check, so the next method is a chang
 
 **COCO detections: looked at.** On the sheet of 20 images, each box of the checkpoint is on its
 object, and no class name is wrong.
+
+## 9. Design change 1: scene groups by links
+
+The scene check failed with the k-means groups (§8). The design is changed in four places: §4.3
+(scene groups, the search for the limit, the split with caps, what to do if no limit passes), §4.5
+(two automatic checks before the scene check), §7.3 (the bootstrap resamples scene groups) and §11
+(limits). This section gives what the build did with the change.
+
+**What is built.**
+
+| Design | Code |
+|---|---|
+| Scene groups for a limit (§4.3) | `scenes.neighbour_lists`, `scenes.link_groups` |
+| Candidate limits and the search | `scenes.link_distances`, `scenes.candidate_limits`, `scenes.search_limit` |
+| The split with a cap for each group, and `unused.txt` | `scenes.split_with_caps`, `scenes.split_problems` |
+| The group check and the split check (§4.5) | `scenes.group_check`, `scenes.split_check` |
+| The second embedding | `scenes.embed_images(grid=4)`, `make_split.py --embedding grid`, `EMBEDDING` in the notebook |
+| The bootstrap of scene groups (§7.3) | `stats.group_resample_weights`; the gate (`runs.run_gate`) and the report (`report.analyse`) read `scene_groups.csv` |
+| The image interval of AP_B − AP_D, one time | "The unit of the bootstrap" in the report, under "Differences in AP" |
+| The limits of §11 | The "Limits" section of the report |
+| The test on invented cameras | `scripts/scene_split_simulation.py`; a small copy runs in the tests |
+
+`cluster_scenes` and `split_by_group` are gone. scikit-learn is no longer a dependency of the
+package; the k-means line of the simulation needs it (`pip install -e ".[dev]"`).
+
+**Decisions inside the change.**
+
+- **One similarity for a pair.** Each pass over all pairs calculates the same blocks of rows
+  (`unit[start:stop] @ unit.T`, 2,048 rows), in float32. So a pair has the same similarity in the
+  neighbour lists, in step 3 and in the two checks. The limit is a float32 number too. The groups
+  are a function of the embeddings and the limit; the rounding of a similarity that is equal to
+  the limit is the one part that can depend on the machine.
+- **Step 3 looks at all images,** not only at those with a full neighbour list. Its last pass
+  finds nothing, and that pass is the group check. `make_split.py` runs the group check one more
+  time on the groups that it writes.
+- **Group numbers** are the rank of the first image of the group, so they do not depend on the code
+  that found the groups.
+- **d_rand** is the median of N pairs (N images) with a random shift of the image position, so no
+  image is a pair with itself. The seed is the split seed.
+- **The draw of a group** (at most 300 or 100 images) has its own generator, from the split seed and
+  the place of the group in the sorted group numbers. The draw of a group does not depend on the
+  groups before it.
+- **The minimum of groups** of the split check is ⌈images / cap⌉: 34 and 20 at the sizes of the
+  design.
+- **No limit: no split.** `make_split.py` then removes the split lists of an earlier run from the
+  splits folder (the six file names that it writes, and no other file), writes the record of the
+  search to `split_meta.json`, and exits with code 3. The notebook does not start a later stage on
+  a splits folder whose `split_meta.json` has no limit or a failed automatic check. So the rejected
+  k-means split on Drive cannot be used by mistake.
+- **A sheet of the largest group.** `make_split.py` writes 50 images of the largest group to
+  `largest_group.jpg`, for the limit "If the largest group is near 20%, look at 50 of its images".
+- **Groups from a file** (`--groups-csv`, design §4.3 "if the image IDs show the camera") get the
+  split with caps. The group check and the split check need a limit, so they do not run.
+- **The bootstrap needs `scene_groups.csv`** in the splits folder. With no file the gate and the
+  report stop with a message. With one image in each group the weights are those of the image
+  bootstrap.
+- **The image interval** is calculated for the runs of arms B and D only (6 of the 12 runs).
+
+**What was run.**
+
+- The four cases of the simulation, with the code of the project. The results are the table of
+  design §4.3: the chosen limits are 0.9689, 0.9837 and 0.9954, and case D has no limit. At each
+  limit the groups are equal to those of the first version of the script, which had its own code.
+- 147 tests: the groups against a brute-force result with neighbour lists that are too short; the
+  search with its two causes of "over-linked"; the caps; the two checks on a split with a planted
+  failure; the group weights; `make_split.py` on planted cameras, with no limit, with the grid
+  embedding and with groups from a file; the gate and the report with the group bootstrap.
+
+- The two embeddings of 12 photographs with the real backbone, on the CPU. At 224 px the last
+  feature map has 16 × 16 positions and 384 channels, so the grid embedding has 6,144 numbers, as
+  the design says. Its largest value is 21.6, so float16 holds it. Two unrelated photographs have a
+  similarity of 0.86 with the mean embedding and −0.09 with the grid embedding (centred).
+- The time of the search on 29,269 invented frames of 384 numbers, on the CPU of the Mac: 1.1
+  seconds for one pass over all pairs, and one pass for each limit. At 110,000 images a pass has 14
+  times as many pairs. On the T4 the whole search is expected to take a few minutes; this is not
+  measured.
+
+**What was not run.** MIO-TCD. Only the scene check on the real images shows if the cameras are
+separable in the real embedding. The search and the checks ran on a CPU only, not on a GPU. The
+grid embedding was not used for a split of real images.
+
+**A result of the simulation to keep in mind.** With 40 invented cameras that are not separable,
+the search accepts its first candidate, both automatic checks pass, and the same camera is in 85%
+of the scene-check pairs. The automatic checks show that the code did what the limit asks. They do
+not show that the limit is low enough. The scene check by a person decides.

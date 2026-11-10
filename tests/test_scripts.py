@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tests.tiny import write_synthetic_miotcd
@@ -39,56 +40,129 @@ def test_prepare_data_and_make_split(tmp_path, capsys):
     assert done.value.code == 3 and "DIFFERENT from the reference counts" in out and "lists the same 6 classes" in out
     assert json.loads((root / "counts.json").read_text())["images"] == 60 and (tmp_path / "checks" / "labels_01.jpg").exists()
 
-    with pytest.raises(SystemExit) as done:  # the class counts of a 60-image dataset are too small
-        script("make_split").main(["--data-root", str(root), "--splits-dir", str(tmp_path / "splits"), "--device", "cpu",
-                                   "--groups", "6", "--test-images", "12", "--val-images", "6", "--train-images", "20",
-                                   "--sheets-dir", str(tmp_path / "checks"), "--pairs", "4", "--num-workers", "0"])
+    # The embeddings of the real code path (the tiny backbone). 60 images cannot give 100 boxes of each class, so no
+    # limit has a split: the search stops at its first candidate, and the split lists of an earlier run are removed.
+    splits_dir = tmp_path / "splits"
+    splits_dir.mkdir()
+    (splits_dir / "test.txt").write_text("00000001\n")
+    (splits_dir / "notes.txt").write_text("not a split file\n")
+    arguments = ["--data-root", str(root), "--splits-dir", str(splits_dir), "--device", "cpu", "--test-images", "12",
+                 "--val-images", "6", "--train-images", "20", "--sheets-dir", str(tmp_path / "checks"), "--pairs", "4",
+                 "--num-workers", "0"]
+    with pytest.raises(SystemExit) as done:
+        script("make_split").main(arguments)
     out = capsys.readouterr().out
-    assert done.value.code == 3 and "make the split larger" in out and "scene check, random_split" in out
-    assert "the splits are NOT made larger" in out  # 60 images cannot give 100 boxes of each class
-    splits = {name: read_ids(tmp_path / "splits" / f"{name}.txt") for name in ("test", "val", "train_pool", "train")}
-    assert len(splits["test"]) >= 12 and len(splits["val"]) >= 6 and len(splits["train"]) == 20
-    assert set(splits["train"]) <= set(splits["train_pool"])
-    assert sorted(splits["test"] + splits["val"] + splits["train_pool"]) == [f"{k:08d}" for k in range(60)]
-    meta = json.loads((tmp_path / "splits" / "split_meta.json").read_text())
-    assert meta["groups"] == 6 and meta["images"]["train"] == 20
-    assert (tmp_path / "checks" / "scene_split_01.jpg").exists() and (root / "embeddings.npy").exists()
-    assert meta["made_larger_for_class_counts"] is None and meta["class_minimums"] == {"test": 100, "val": 30}
+    assert done.value.code == 3 and "[check] NO LIMIT: the first candidate is over-linked" in out
+    assert "the split is not possible: the groups end before the test split is complete" in out
+    assert "removed the split files of an earlier run" in out and "run the second embedding one time: --embedding grid" in out
+    assert {p.name for p in splits_dir.iterdir()} == {"split_meta.json", "notes.txt"}
+    meta = json.loads((splits_dir / "split_meta.json").read_text())
+    assert meta["limit"] is None and meta["embedding"] == "mean" and meta["checks"]["passed"] is False
+    assert len(meta["search"]["candidates"]) == 1 and meta["search"]["candidates"][0]["over_linked"]
+    assert meta["search"]["d_near"] < meta["search"]["d_rand"] and meta["class_minimums"] == {"test": 100, "val": 30}
+    assert np.load(root / "embeddings.npy").shape == (60, 24)
+
+    # The second embedding, one time; after it a decision is needed.
+    with pytest.raises(SystemExit) as done:
+        script("make_split").main([*arguments, "--embedding", "grid"])
+    out = capsys.readouterr().out
+    assert done.value.code == 3 and "the second embedding failed too. A decision is needed" in out
+    grid = np.load(root / "embeddings_grid.npy")
+    assert grid.shape == (60, 24 * 16) and grid.dtype == np.float16
+    assert json.loads((splits_dir / "split_meta.json").read_text())["embedding"] == "grid"
 
 
-def test_make_split_takes_more_groups_for_a_class_with_too_few_boxes(tmp_path, capsys, monkeypatch):
-    """Stage 1 on MIO-TCD: the val split of the design's size had 5 `bicycle` boxes, and 30 are needed."""
+def planted_cameras(root, n_images: int = 60, n_cameras: int = 6) -> np.ndarray:
+    """Write `embeddings.npy`: image k is a frame of camera k mod n_cameras, near the centre of its camera."""
+    rng = np.random.default_rng(0)
+    camera = np.arange(n_images) % n_cameras
+    centres = np.linalg.qr(rng.normal(size=(16, 16)))[0][:n_cameras] + 3.0  # a large common part, as the real ones
+    np.save(root / "embeddings.npy", (centres[camera] + rng.normal(size=(n_images, 16)) * 0.003).astype(np.float32))
+    return camera
+
+
+def test_make_split_links_the_frames_of_a_camera(tmp_path, capsys, monkeypatch):
+    """The whole stage on 6 planted cameras of 10 frames: the search, the split with caps, the checks, the files."""
     root = write_synthetic_miotcd(tmp_path / "data", n_images=60, scenes=6)
     with pytest.raises(SystemExit):
         script("prepare_data").main(["--data-root", str(root)])
-    coco = json.loads((root / "annotations.json").read_text())
-    arguments = ["--data-root", str(root), "--device", "cpu", "--groups", "6", "--test-images", "6", "--val-images", "6",
-                 "--train-images", "10", "--num-workers", "0"]
-    with pytest.raises(SystemExit):
-        script("make_split").main([*arguments, "--splits-dir", str(tmp_path / "plain")])
-    plain = {name: read_ids(tmp_path / "plain" / f"{name}.txt") for name in ("test", "val")}
-    by_id = {im["miotcd_id"]: im["id"] for im in coco["images"]}
-
-    def fewest(ids):  # the smallest number of boxes that a specific class has in these images
-        counts = boxes_per_class(coco, [by_id[i] for i in ids])
-        return min(counts[name] for name in SPECIFIC_CLASSES)
-
-    # Minimums that the plain test split has and the plain val split does not have.
-    need_val = fewest(plain["val"]) + 1
-    monkeypatch.setattr(scenes, "MIN_TEST_BOXES", fewest(plain["test"]))
-    monkeypatch.setattr(scenes, "MIN_VAL_BOXES", need_val)
+    camera = planted_cameras(root)
+    monkeypatch.setattr(scenes, "MIN_TEST_BOXES", 0)  # 60 images do not have the boxes of the real minimums
+    monkeypatch.setattr(scenes, "MIN_VAL_BOXES", 0)
     capsys.readouterr()
+    splits_dir, checks = tmp_path / "splits", tmp_path / "checks"
     with pytest.raises(SystemExit) as done:
-        script("make_split").main([*arguments, "--splits-dir", str(tmp_path / "larger")])
+        script("make_split").main(["--data-root", str(root), "--splits-dir", str(splits_dir), "--device", "cpu",
+                                   "--test-images", "12", "--val-images", "6", "--train-images", "20", "--test-cap", "8",
+                                   "--val-cap", "4", "--sheets-dir", str(checks), "--pairs", "4", "--num-workers", "0"])
     out = capsys.readouterr().out
-    larger = {name: read_ids(tmp_path / "larger" / f"{name}.txt") for name in ("test", "val", "train_pool", "train")}
-    assert done.value.code == 0 and "the splits are made larger" in out and "class counts: passed" in out
-    assert larger["test"] == plain["test"] and set(plain["val"]) < set(larger["val"]) and fewest(larger["val"]) >= need_val
-    assert len(larger["train"]) == 10 and set(larger["train"]) <= set(larger["train_pool"])
-    meta = json.loads((tmp_path / "larger" / "split_meta.json").read_text())
-    assert meta["made_larger_for_class_counts"]["images_at_the_sizes_of_the_design"] == {"test": len(plain["test"]),
-                                                                                         "val": len(plain["val"])}
-    assert meta["images"]["val"] == len(larger["val"]) and meta["class_minimums"]["val"] == need_val
+    assert done.value.code == 0, out
+    for line in ("[search] nearest image: median similarity", "the lowest that is not over-linked",
+                 "[check] no overlap and class counts: passed", "[check] group check: passed: 0 images",
+                 "[check] split check: passed: test 2 groups (2 needed), val 2 groups (2 needed)",
+                 "[check] scene check, scene_split: 4 pairs", "[check] scene check, random_split: 4 pairs",
+                 "Each pair of the scene split is below the limit", "16 images of these groups are over the cap"):
+        assert line in out, line
+    assert "OVER-LINKED: the largest group has" in out  # the search went on until two cameras joined
+
+    ids = [f"{k:08d}" for k in range(60)]
+    lists = {name: read_ids(splits_dir / f"{name}.txt") for name in ("test", "val", "train_pool", "train", "unused")}
+    assert sorted(lists["test"] + lists["val"] + lists["train_pool"] + lists["unused"]) == ids
+    assert len(lists["test"]) == 16 and len(lists["val"]) == 8 and len(lists["unused"]) == 16
+    assert len(lists["train_pool"]) == 20 and sorted(lists["train"]) == sorted(lists["train_pool"])
+    groups = scenes.read_groups(splits_dir / "scene_groups.csv")
+    assert [groups[i] for i in ids] == camera.tolist()  # a scene group is a camera
+    cameras_of = {name: {groups[i] for i in lists[name]} for name in lists}
+    assert len(cameras_of["test"]) == 2 and len(cameras_of["val"]) == 2 and len(cameras_of["train_pool"]) == 2
+    assert not cameras_of["test"] & cameras_of["val"] and not (cameras_of["test"] | cameras_of["val"]) & cameras_of["train_pool"]
+    assert cameras_of["unused"] == cameras_of["test"] | cameras_of["val"]  # over the cap of their group: in no split
+
+    meta = json.loads((splits_dir / "split_meta.json").read_text())
+    search = meta["search"]
+    assert meta["limit"] == search["candidates"][search["chosen_candidate"]]["limit"] and meta["groups"] == 6
+    assert [row["over_linked"] is None for row in search["candidates"]] == [True] * (len(search["candidates"]) - 1) + [False]
+    assert search["chosen_candidate"] == len(search["candidates"]) - 2  # the candidate before the first over-linked one
+    assert meta["checks"]["passed"] is True and meta["checks"]["group_check"]["failures"] == 0
+    assert meta["checks"]["split_check"]["errors"] == [] and meta["checks"]["split_check"]["test groups"] == 2
+    assert meta["checks"]["group_check"]["highest_similarity_outside_a_group"] < meta["limit"]
+    assert meta["images"] == {"test": 16, "val": 8, "train_pool": 20, "train": 20, "unused": 16}
+    assert meta["caps"] == {"test": 8, "val": 4} and meta["groups_per_split"] == {"test": 2, "val": 2, "train_pool": 2}
+    assert meta["largest_group_share"] == pytest.approx(1 / 6) and meta["embedding"] == "mean"
+    assert all((checks / name).exists() for name in ("scene_split_01.jpg", "random_split_01.jpg", "largest_group.jpg"))
+
+    # Groups from a file (design §4.3: "if the image IDs show the camera"): the split, with no limit to check.
+    with pytest.raises(SystemExit) as done:
+        script("make_split").main(["--data-root", str(root), "--splits-dir", str(tmp_path / "by_file"), "--device", "cpu",
+                                   "--groups-csv", str(splits_dir / "scene_groups.csv"), "--test-images", "12",
+                                   "--val-images", "6", "--train-images", "20", "--test-cap", "8", "--val-cap", "4"])
+    out = capsys.readouterr().out
+    assert done.value.code == 0 and "group check and split check: not run" in out
+    assert read_ids(tmp_path / "by_file" / "test.txt") == lists["test"]  # the same groups give the same split
+    by_file = json.loads((tmp_path / "by_file" / "split_meta.json").read_text())
+    assert by_file["limit"] is None and by_file["search"] is None and by_file["group_source"] == "groups from scene_groups.csv"
+
+
+def test_simulation_of_the_scene_groups():
+    """`scripts/scene_split_simulation.py` on small copies of two of its cases: cameras that the links separate, and
+    cameras that they do not separate. Both failure signals of design §4.3 must work: no limit, or a limit whose
+    split fails the scene check."""
+    simulation = script("scene_split_simulation")
+    small = dict(n_train=300, quiet=True, n_cam=60, median=40)
+    apart = simulation.run("A", **small, **simulation.CASES["A: cameras well apart"])
+    assert apart["limit"] is not None and apart["scene_check"] == 0.0
+    assert apart["group_check_failures"] == 0 and apart["split_check_errors"] == []
+    assert apart["groups"] <= apart["cameras"] == 60  # no camera is cut; some similar cameras are in one group
+    rows = apart["candidates"]
+    assert rows[-1]["over_linked"] and all(row["over_linked"] is None for row in rows[:-1])
+    assert [row["groups"] for row in rows] == sorted((row["groups"] for row in rows), reverse=True)  # a lower limit joins groups
+
+    none = simulation.run("D", **small, **simulation.CASES["D: not separable"])
+    assert none["limit"] is None and len(none["candidates"]) == 1 and none["candidates"][0]["over_linked"]
+    # With fewer cameras the search accepts its first candidate. The automatic checks pass, and the scene check
+    # fails: the check with eyes is the one that decides.
+    fewer = simulation.run("D", **{**small, "n_cam": 40, "median": 30}, **simulation.CASES["D: not separable"])
+    assert fewer["limit"] is not None and fewer["group_check_failures"] == 0 and fewer["split_check_errors"] == []
+    assert fewer["scene_check"] > 0.5 and fewer["groups"] > 10 * fewer["cameras"]  # the cameras are cut into small groups
 
 
 def test_train_select_gate_evaluate_analyse(data_root, splits_dir, tmp_path, capsys):

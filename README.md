@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) ran two times on MIO-TCD: the counts and the class counts pass, but the scene check fails (the k-means scene groups do not separate the cameras), so there is no accepted split yet. No training run yet, so no results yet.
+> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) ran two times on MIO-TCD: the counts and the class counts pass, but the first split method (k-means) failed the scene check. The split method is changed (design §4.3: scene groups by links) and is not run on MIO-TCD yet, so there is no accepted split. No training run yet, so no results yet.
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 
@@ -92,10 +92,15 @@ project stops there.
 - **No dead adapters.** The detector does not use the last backbone layer, so
   LoRA skips it.
 - **A learning rate for each arm,** chosen on the validation split.
-- **Three seeds for each arm,** and a paired bootstrap on the test images.
+- **Three seeds for each arm,** and a paired bootstrap on the scene groups of the
+  test split. Frames of one camera are not independent.
 - **A split by scene.** Frames from one camera show the same background. The
   dataset has no camera ID, so I estimate scene groups from image embeddings
-  and keep each group in one split.
+  and keep each group in one split. A scene group is a connected set of
+  images that are linked at or above a similarity limit, so near images are
+  in one group by construction. An automatic search sets the limit. My first
+  method, k-means, failed the scene check: it cut the frames of one camera
+  into more than one group.
 - **Ignore regions.** The class `motorized_vehicle` marks vehicles that are
   too small to identify. A detection of one of six vehicle classes on such a
   box is not a true positive and not a false positive. The six classes are
@@ -122,7 +127,7 @@ stage ends with its check from the design, and the next stage does not start bef
 | `STAGE` | What runs | The check |
 |---|---|---|
 | `spike` | Model facts on the real checkpoint; speed and memory of each arm | The parameter counts; the last backbone layer changes no logit |
-| `data` | Download, converter, scene groups, split files | Counts, label completeness, class counts, no overlap, scene check |
+| `data` | Download, converter, scene groups, split files | Counts, label completeness, class counts, no overlap, group check, split check, scene check |
 | `checks` | The COCO checkpoint with no training; the training loop on 16 images | AP50 of `car` and `bus` above zero; arm F reaches AP50 above 0.9 |
 | `gate` | Learning-rate runs of H and F | The gate |
 | `main` | Learning-rate runs of D and B; seeds 1 and 2 of all arms | No skipped step; the merge check |
@@ -155,16 +160,16 @@ the real checkpoint (a download of 130 MB the first time).
 | Unit | Responsibility |
 |---|---|
 | `data/miotcd.py` | `gt_train.csv` to COCO JSON; counts; class order |
-| `data/scenes.py` | Embeddings, k-means, scene groups, split files, nearest neighbours |
+| `data/scenes.py` | Embeddings, scene groups by links, the search for the limit, the split with a cap for each group, the group check and the split check |
 | `data/dataset.py` | Dataset and collate function with the library's image processor |
 | `model/lora.py` | `LoRALinear`, `inject_lora` with a layer filter, `merge_lora` |
 | `model/arms.py` | The start model, the class heads, freezing by name, the adapters of an arm, the parameter table |
 | `engine.py`, `training.py`, `checkpoint.py` | The library's loss in float32, optimizer groups, schedule, one epoch, a run that can resume |
 | `evaluation.py` | Saved predictions; ignore regions; AP with a weight for each image; box AP |
 | `errors.py` | Localized share, label accuracy, confusion table |
-| `stats.py` | Paired bootstrap, recovered share, the gate, the three readings as text |
+| `stats.py` | Paired bootstrap of scene groups, recovered share, the gate, the three readings as text |
 | `runs.py`, `report.py`, `plotting.py`, `sheets.py` | Run folders, learning-rate choice, the report, the figure, the check sheets |
-| `scripts/` | One script for each step of the notebook |
+| `scripts/` | One script for each step of the notebook; `scene_split_simulation.py` tests the scene groups on invented cameras |
 
 All analysis runs on a CPU from the saved predictions of each run.
 
@@ -174,7 +179,7 @@ All analysis runs on a CPU from the saved predictions of each run.
 |---|---|
 | LoRA layer, injection and merging (from `detr-lora`) | RF-DETR model, weights, loss and image processor (`transformers`) |
 | Dataset converter and scene split | Matching of detections to boxes (`pycocotools`) |
-| Arm definitions and parameter accounting | k-means (`scikit-learn`) |
+| Arm definitions and parameter accounting | Connected sets of a graph (`scipy`) |
 | Training loop | PyTorch |
 | Evaluation with ignore regions, AP from the matches, error split, bootstrap statistics | |
 
@@ -183,7 +188,10 @@ All analysis runs on a CPU from the saved predictions of each run.
 - One model (RF-DETR base) and one dataset. The answer is not a general law.
 - Full fine-tuning uses a simple recipe. If it is under-tuned, the recovered
   share of LoRA is too high.
-- The scene groups are an estimate.
+- The scene groups are an estimate. A group can hold more than one camera,
+  and two parts of one camera (day and night) can stay in two groups.
+- A scene group gives at most 300 images to the test split, so a camera
+  with many frames has no more weight than a camera with 300.
 - Equal parameter counts are not equal capacity. Rank 33 is a larger share of
   a decoder matrix than rank 9 is of a backbone matrix.
 

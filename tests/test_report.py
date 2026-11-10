@@ -41,12 +41,17 @@ def test_report_end_to_end_and_the_same_on_a_second_run(runs_root, data_root, sp
                     "### Confusion of the truck family, B: LoRA in the backbone", "## Other metrics",
                     "## Learning rates and the gate", "## Checks", "## Limits"):
         assert section in text
-    assert "6 images" in text and "mean of 2 seeds (0, 1)" in text and "20 paired bootstrap resamples" in text
+    assert "6 images" in text and "mean of 2 seeds (0, 1)" in text
+    assert "20 paired bootstrap resamples of the 3 scene groups of the split" in text
+    assert "*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups:" in text
+    assert "With resamples of single images:" in text
     assert "b_lr1e-3_s0, b_lr1e-3_s1" in text and "f_lr1e-4_h1e-3_s0" in text
     numbers = json.loads((out / "numbers.json").read_text())
     assert set(numbers["arms"]) == set("HDBF") and set(numbers["readings"]) == {"P1", "P2", "P3"}
     assert set(numbers["readings"].values()) <= {"confirmed", "refuted", "not shown"}
     assert len(numbers["arms"]["B"]["metrics"]["AP"]["by_seed"]) == 2
+    by_image, by_group = numbers["image_bootstrap"]["B - D"], numbers["differences"]["B - D"]
+    assert by_image["value"] == by_group["value"] and by_image["low"] <= by_image["value"] <= by_image["high"]
     # a second run reads the saved predictions (and the cache) and gives the same text
     assert all((runs_root / name / "analysis_test.npz").exists() for name in ("h_lr1e-3_s0", "f_lr1e-4_h1e-3_s1"))
     assert report.analyse(runs_root, data_root, splits_dir, out, n_boot=20, seeds=SEEDS) == text
@@ -108,4 +113,10 @@ def test_render_handles_missing_classes_and_shows_the_outcomes():
     assert "| P1 | LoRA in the backbone is better than LoRA in the decoder. | **confirmed** | AP_B − AP_D = +0.120 [" in text
     assert "| B: LoRA in the backbone | 2,048,210 | 0.561 [" in text and "1 (by definition)" in text
     assert "| bicycle | – |" in text and "10,000 images" in text and "![Recovered share" in text
+    assert "resamples of the scene groups of the split" in text and "The unit of the bootstrap" not in text
+    assert "linked at a cosine similarity of the chosen limit or more" in text and "at most 300 images" in text
+    with_split = report.render({**numbers, "image_bootstrap": {"B - D": {"value": 0.12, "low": 0.11, "high": 0.13}}},
+                               {**context, "groups": 41, "split_meta": {"limit": 0.97531, "caps": {"test": 250, "val": 80}}})
+    assert "resamples of the 41 scene groups of the split" in with_split and "With resamples of single images: +0.120 [+0.110, +0.130]" in with_split
+    assert "linked at a cosine similarity of 0.9753 or more" in with_split and "at most 250 images" in with_split
     assert all(c in text for c in SPECIFIC_CLASSES) and stats.P3_THRESHOLD == pytest.approx(0.6667, abs=1e-4)

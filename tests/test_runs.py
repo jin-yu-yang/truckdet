@@ -122,11 +122,20 @@ def test_gate_reads_the_chosen_runs(data_root, splits_dir, tmp_path):
     (tmp_path / runs.SELECTION).write_text(json.dumps({"H": {"lr": 1e-3, "body_lr": None}, "F": {"lr": 1e-3, "body_lr": 1e-4}}))
     result = runs.run_gate(tmp_path, data_root, splits_dir, n_boot=30)
     assert result["runs"] == {"H": "h_lr1e-3_s0", "F": "f_lr1e-4_h1e-3_s0"} and result["val_images"] == 6
+    assert result["val_groups"] == 3 and "resamples of the 3 scene groups" in runs.gate_text(result)
     assert result["difference"] == pytest.approx(result["AP_F"] - result["AP_H"]) and isinstance(result["passed"], bool)
     assert json.loads((tmp_path / runs.GATE).read_text())["n_boot"] == 30
     text = runs.gate_text(result)
     assert "AP_F − AP_H" in text and ("The gate passes" in text or "The gate fails: stop. The data cannot separate the arms." in text)
     assert "fails" in runs.gate_text({**result, "passed": False}) and "passes" in runs.gate_text({**result, "passed": True})
+
+
+def test_bootstrap_needs_the_scene_groups(data_root, splits_dir):
+    gt = runs.split_ground_truth(data_root, splits_dir, "val")
+    assert runs.split_groups(gt, splits_dir).tolist() == [6, 6, 7, 7, 8, 8]  # images 12 to 17, two in each group
+    (splits_dir / "scene_groups.csv").unlink()
+    with pytest.raises(FileNotFoundError, match="the bootstrap resamples scene groups"):
+        runs.split_groups(gt, splits_dir)
 
 
 def test_gate_needs_the_val_predictions(data_root, splits_dir, tmp_path):

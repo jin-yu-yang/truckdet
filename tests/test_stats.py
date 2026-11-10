@@ -14,6 +14,37 @@ def test_resample_weights():
     assert stats.N_BOOT == 400
 
 
+def test_group_resample_weights():
+    """Design §7.3: a resample draws scene groups, and the weight of an image is the number of draws of its group."""
+    groups = np.array([7, 7, 7, 2, 2, 9, 4, 4, 4, 4])  # 4 groups; the numbers of the groups have no meaning
+    w = stats.group_resample_weights(groups, n_boot=200, seed=0)
+    assert w.shape == (200, 10) and w.min() >= 0
+    for members in ([0, 1, 2], [3, 4], [5], [6, 7, 8, 9]):
+        assert (w[:, members] == w[:, members[:1]]).all()  # the images of a group have one weight
+    per_group = w[:, [0, 3, 5, 6]]
+    assert (per_group.sum(axis=1) == 4).all()  # 4 draws of the 4 groups
+    assert not (w.sum(axis=1) == 10).all()  # so the number of images changes from resample to resample
+    assert np.array_equal(w, stats.group_resample_weights(groups, 200, 0))
+    assert np.array_equal(w[:5], stats.group_resample_weights(groups, 5, 0))  # resample i does not depend on n_boot
+    assert not np.array_equal(w, stats.group_resample_weights(groups, 200, 1))
+    relabelled = np.array([1, 1, 1, 0, 0, 3, 2, 2, 2, 2])  # other numbers in another order: the same partition
+    assert (stats.group_resample_weights(relabelled, 50, 0)[:, [0, 3, 5, 6]].sum(axis=1) == 4).all()
+    # one image in each group: the bootstrap of single images
+    assert np.array_equal(stats.group_resample_weights(np.arange(50), 20, 0), stats.resample_weights(50, 20, 0))
+
+
+def test_group_bootstrap_is_wider_than_the_image_bootstrap_when_scenes_differ():
+    """Frames of one camera are not independent: with a score that depends on the scene, the image bootstrap
+    gives a standard error that is too small."""
+    rng = np.random.default_rng(0)
+    groups = np.repeat(np.arange(20), 50)
+    score = rng.normal(size=20)[groups] + rng.normal(size=1000) * 0.1  # the scene decides the score of a frame
+    def se(weights):
+        return float(((weights * score).sum(axis=1) / weights.sum(axis=1)).std(ddof=1))
+    by_group, by_image = se(stats.group_resample_weights(groups, 400)), se(stats.resample_weights(1000, 400))
+    assert by_group > 4 * by_image
+
+
 def test_interval_and_se():
     samples = np.arange(101, dtype=float)
     assert stats.interval(samples) == pytest.approx((2.5, 97.5))

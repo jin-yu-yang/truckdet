@@ -1,0 +1,8 @@
+# Arm B: the heads, and LoRA in the backbone: q_proj and v_proj of attention, backbone layers 0-10 (layer 11
+# has no effect on the output). 22 projections x rank 9 x 768 = 152,064 adapter parameters.
+arm: B
+lora:
+  r: 9
+  alpha: 18
+train:
+  lr_grid: [1.0e-4, 3.0e-4, 1.0e-3]

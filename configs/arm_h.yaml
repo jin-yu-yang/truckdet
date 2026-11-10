@@ -1,0 +1,4 @@
+# Arm H: the heads only. All other parameters are frozen. 1,896,146 trainable parameters.
+arm: H
+train:
+  lr_grid: [1.0e-4, 3.0e-4, 1.0e-3]

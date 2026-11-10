@@ -1,0 +1,4 @@
+# Arm F: all parameters. The heads use the learning rate that arm H chose; lr_grid is for all other parameters.
+arm: F
+train:
+  lr_grid: [1.0e-5, 3.0e-5, 1.0e-4]

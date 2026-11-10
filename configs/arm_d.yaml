@@ -1,0 +1,8 @@
+# Arm D: the heads, and LoRA in the decoder: q_proj and v_proj of self-attention and value_proj of the
+# deformable cross-attention, decoder layers 0-2. 9 projections x rank 33 x 512 = 152,064 adapter parameters.
+arm: D
+lora:
+  r: 33
+  alpha: 66
+train:
+  lr_grid: [1.0e-4, 3.0e-4, 1.0e-3]

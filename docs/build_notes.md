@@ -13,7 +13,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 128 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
-| Arm F on 8 real images | The same stand-in images, CPU | See §5 |
+| Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
+| The scripts `make_split.py` and `spike.py --image-dir` | The same stand-in images, real backbone, CPU | They run; the sheets look right |
 | **Not run:** anything on a GPU | | The fp16 path, the speed and the memory are first measured by stage `spike` of the notebook |
 | **Not run:** anything on MIO-TCD | | The download, the counts, the embeddings and k-means at 110,000 images first run in stage `data` |
 
@@ -146,6 +147,17 @@ in MIO-TCD's CSV format (`truck` and `fire_engine` → `single_unit_truck`, `tra
 `articulated_truck`) to run the real checkpoint through the real code. These numbers are a check of
 the code. They are not results.
 
-- The start model, with no training, on 60 of these images: AP 0.25, AP50 0.30
+- **The start model, with no training,** on 60 of these images: AP 0.25, AP50 0.30
   (`single_unit_truck` 0.46, `pickup_truck` 0.29, `articulated_truck` 0.17), box AP 0.32. The
   resize, the box format and the class rows are correct.
+- **Arm H on 8 of these images,** 40 epochs (80 optimizer steps), rate 1e-3: the loss goes from
+  23.4 to 4.1 with no skipped batch. The final checkpoint is 7.6 MB (trainable parameters only).
+  Loaded again and scored on its 8 training images: AP50 0.74 (the start model: 0.66), AP 0.74
+  (0.60). So the chain train → `final.pt` → load → predict → score works with the real weights.
+- **Arm F on the same 8 images,** rates 1e-4 for the heads and the body, 16 epochs: the loss goes
+  from 21.1 to 10.5. It is slower than arm H because its heads had a tenth of the rate; the
+  overfit check now uses 1e-3 for the heads and 3e-5 for the body. The run was stopped after
+  epoch 14 and resumed at epoch 15, as the check does it.
+- **Not done here:** "arm F reaches AP50 above 0.9 on 16 images" (stage 4). On this CPU one step
+  of arm F takes 20 to 45 seconds. Stage `checks` of the notebook runs it on the T4. If it fails
+  there and the loss still decreases, give it more epochs (`--epochs-f`).

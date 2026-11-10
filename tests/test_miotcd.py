@@ -69,9 +69,16 @@ def test_count_differences():
     reference = {"csv_images": 110_000, "csv_rows": 351_549, "csv_images_with_motorized_vehicle": 20_299,
                  "images": 110_000, "boxes": 351_549, "boxes_dropped_zero_area": 0, "images_missing_file": 0}
     assert miotcd.count_differences(reference) == []
-    off = {**reference, "csv_rows": 351_000, "boxes": 350_990, "boxes_dropped_zero_area": 10}
+    assert miotcd.count_notes(reference) == []
+    off = {**reference, "csv_rows": 351_000, "boxes": 350_990, "boxes_dropped_zero_area": 10, "images_missing_file": 3}
     lines = miotcd.count_differences(off)
-    assert len(lines) == 2 and "351,000" in lines[0] and "10 boxes" in lines[1]
+    assert len(lines) == 2 and "351,000" in lines[0] and "3 images" in lines[1]
+    # What MIO-TCD gave (stage 1): the three reference counts, and 5 rows with zero area. The converter drops and
+    # records them (design §4.2); the check of the reference counts passes.
+    real = {**reference, "boxes": 351_544, "boxes_dropped_zero_area": 5, "boxes_clipped": 0, "files_not_in_csv": 0}
+    assert miotcd.count_differences(real) == []
+    assert miotcd.count_notes(real) == ["5 boxes have zero area after clipping and are dropped: 351,544 boxes remain "
+                                        "of 351,549 rows"]
 
 
 def test_ignore_classes_are_read_from_the_official_code(tmp_path):

@@ -11,16 +11,17 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 |---|---|---|
 | Stage 0 checks (`scripts/spike.py`), without the timing | Real checkpoint, CPU | All passed (§2 below) |
 | Stage 0 checks with the timing (`scripts/spike.py --time`) | Real checkpoint, Colab T4, fp16 | All passed; speed and memory in §6 |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 129 passed |
+| Stage 1 (`prepare_data.py`, `make_split.py`), first run | MIO-TCD, Colab T4 | The counts and the ignore classes are confirmed; the val split of the design's size has too few boxes of three classes (§7) |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 132 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
 | The scripts `make_split.py` and `spike.py --image-dir` | The same stand-in images, real backbone, CPU | They run; the sheets look right |
 | **Not run:** a training run on a GPU | | Stage 0 timed 23 steps of each arm (§6). Stage `checks` of the notebook is the first run with a data loader, checkpoints and an evaluation |
-| **Not run:** anything on MIO-TCD | | The download, the counts, the embeddings and k-means at 110,000 images first run in stage `data` |
+| **Not run:** the start model and a training run on MIO-TCD | | Stage `checks` of the notebook |
 
-So stage `data` of the notebook is the first run on the real data, and stage `checks` is the first
-training run on the GPU.
+So stage `checks` of the notebook is the first training run on the GPU, and the first run of the
+model on MIO-TCD images.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -59,6 +60,10 @@ GitHub (`hakimamarouche/MIO-TCD-classification`) has
 notebook downloads the dataset's code archive and compares the list again
 (`prepare_data.py --eval-code`); it stops if they are different. To use the seven of the design,
 add `"motorcycle"` to that one tuple, before any training run.
+
+Stage `data` made this comparison with the dataset's own code archive
+(`MIO-TCD-Localization-Code.tar`, 2026-11-10): `localization_evaluation.py` lists the same six
+classes.
 
 **3.2 The row of `non-motorized_vehicle` gets the prior bias in all 14 class layers (§5.4).** "The
 library's default initialisation" gives `class_embed` a bias of −4.6 (a probability of 0.01) and
@@ -202,3 +207,59 @@ autocast, 2026-11-10. All checks of stage 0 passed, with the numbers of §2.
 
   The warning is not shown any more (`engine.step_schedule`); the count replaces it. The check of
   stage 6, "no skipped step", stays as §4 has it: 0 batches with a loss that is not finite.
+
+## 7. Stage 1 on MIO-TCD: the first run
+
+Stage `data` of the notebook at commit `bd06de3`, 2026-11-10. The archive (3.5 GB) came in 64
+seconds. The five checks of design §4.5:
+
+**1. Counts: passed.** The CSV has 351,549 rows, 110,000 images, and 20,299 images with a
+`motorized_vehicle` row. These are the three reference counts. Each image has a file, no file is
+without a row, and no box goes over the edge of its image. 5 rows have zero area; the converter
+drops them (design §4.2), and 351,544 boxes remain:
+
+| Class | Boxes | | Class | Boxes |
+|---|---|---|---|---|
+| `car` | 233,494 | | `pedestrian` | 7,128 |
+| `pickup_truck` | 44,282 | | `single_unit_truck` | 5,740 |
+| `motorized_vehicle` | 25,845 | | `non-motorized_vehicle` | 2,350 |
+| `bus` | 10,598 | | `bicycle` | 2,260 |
+| `articulated_truck` | 9,301 | | `motorcycle` | 1,837 |
+| `work_van` | 8,709 | | | |
+
+The run printed "counts: DIFFERENT from the reference counts" for the 5 dropped rows. That was an
+error of the message, not of the data: the dropped rows are now printed as a note, and the check
+compares the counts of the CSV only.
+
+**2. Label completeness: a person counts.** 100 images on 5 sheets. Not recorded here yet.
+
+**3. Class counts: failed at the sizes of the design, for the val split.**
+
+| | Images | Scene groups | Smallest classes |
+|---|---|---|---|
+| test | 10,088 | 97 | `motorcycle` 195, `non-motorized_vehicle` 234, `bicycle` 448 (100 needed) |
+| val | 2,016 | 18 | `bicycle` **5**, `non-motorized_vehicle` **10**, `motorcycle` **29** (30 needed) |
+| train pool | 97,896 | 885 | |
+
+A random 2,016 images have about 41 `bicycle` boxes. The val split has 5, because whole scene
+groups go to a split and the rare classes are in few scenes. The design's rule is "make the splits
+larger". `make_split.py` now does this with the smallest change: a split takes more whole groups,
+in the same random order, until each specific class has its minimum (`scenes.split_by_group` with
+`class_boxes`). The test split of this run already has its minimums, so the rule changes the val
+split and the train pool only. `split_meta.json` records the sizes before and after. The second
+run of the stage gives the new size of the val split.
+
+**4. No overlap: passed.** No image and no scene group is in two splits.
+
+**5. Scene check: a person counts.** 200 pairs for the scene split and 200 for a random split. The
+mean similarity of a test image and its nearest train-pool image is 0.993 for the scene split and
+0.996 for the random split (two random images: 0.914). The count must be made on the sheets of the
+second run, because the train pool changes when the val split grows.
+
+Other results of the run:
+
+- **The image IDs do not show the camera.** Images next to each other in ID order have a mean
+  similarity of 0.914, and random pairs have 0.914. So the scene groups are clusters (design §4.3).
+- **The ignore classes are the six of §3.1**, confirmed against the dataset's code archive.
+- **The train subset** (8,000 images) of this first split had 139 `bicycle`, 149 `motorcycle` and
+  171 `non-motorized_vehicle` boxes. The second run draws a new subset from the smaller train pool.

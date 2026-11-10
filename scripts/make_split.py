@@ -7,6 +7,10 @@ Writes splits/{test,val,train_pool,train}.txt, scene_groups.csv and split_meta.j
 check needs eyes: for 200 random test images the sheets show the nearest train-pool image. Accept the split
 if 10 pairs or fewer show the same camera view, and do the same count on the sheets of the random image
 split, for the report.
+
+Class counts (design §4.5): if a specific class has fewer than 100 boxes in the test split or fewer than 30
+in the val split at the sizes of the design, the split takes more whole groups, in the same random order,
+until each class has its minimum.
 """
 
 import argparse
@@ -72,12 +76,43 @@ def main(argv: list[str] | None = None) -> None:
     else:
         groups = scenes.cluster_scenes(embeddings, args.groups, args.seed)
         source = f"k-means, k = {args.groups}, on unit-length mean features of the frozen backbone at {scenes.EMBED_SIZE} px"
+    def ids_of(split: dict) -> dict:
+        return {name: coco_ids[positions].tolist() for name, positions in split.items()}
+
+    def sizes_of(split: dict) -> str:
+        return ", ".join(f"{name} {len(split[name]):,} images in {len(np.unique(groups[split[name]]))} groups"
+                         for name in ("test", "val"))
+
+    # The split at the sizes of the design. If a class has too few boxes in it, the design says to make the
+    # splits larger: the same groups in the same order, and more of them, until each class has its minimum.
     splits = scenes.split_by_group(groups, args.test_images, args.val_images, args.seed)
+    short = scenes.class_count_errors(coco, ids_of(splits))
+    made_larger = None
+    if short:
+        print(f"[check] class counts at the sizes of the design ({sizes_of(splits)}):")
+        for line in short:
+            print("  - " + line)
+        larger = scenes.split_by_group(groups, args.test_images, args.val_images, args.seed,
+                                       class_boxes=scenes.class_box_counts(coco, coco_ids),
+                                       min_boxes=(scenes.MIN_TEST_BOXES, scenes.MIN_VAL_BOXES))
+        if not scenes.class_count_errors(coco, ids_of(larger)) and len(larger["train_pool"]) >= args.train_images:
+            made_larger = {"images_at_the_sizes_of_the_design": {name: len(splits[name]) for name in ("test", "val")},
+                           "short_at_the_sizes_of_the_design": short}
+            splits = larger
+            print(f"[check] the splits are made larger (design §4.5), with whole groups in the same random order, "
+                  f"until each specific class has {scenes.MIN_TEST_BOXES} boxes in test and {scenes.MIN_VAL_BOXES} "
+                  f"in val: {sizes_of(splits)}")
+        else:
+            print("[check] the splits are NOT made larger: this dataset cannot give each class its minimum and "
+                  f"leave {args.train_images:,} images for training")
     splits["train"] = scenes.train_subset(splits["train_pool"], args.train_images, args.seed)
 
     errors = scenes.overlap_errors(splits, groups)
-    by_split = {name: coco_ids[positions].tolist() for name, positions in splits.items()}
+    by_split = ids_of(splits)
     errors += scenes.class_count_errors(coco, by_split)
+    if len(splits["train_pool"]) < args.train_images:
+        errors.append(f"train pool: {len(splits['train_pool']):,} images, {args.train_images:,} are needed for the "
+                      "train subset")
     counts = {name: boxes_per_class(coco, ids) for name, ids in by_split.items()}
     print("| Class | " + " | ".join(by_split) + " |\n|---|" + "---|" * len(by_split))
     for c in CLASSES:
@@ -105,6 +140,8 @@ def main(argv: list[str] | None = None) -> None:
         "images": {name: len(ids) for name, ids in by_split.items()}, "boxes_per_class": counts,
         "neighbour_similarity": similarity, "requested": {"test": args.test_images, "val": args.val_images,
                                                            "train": args.train_images},
+        "class_minimums": {"test": scenes.MIN_TEST_BOXES, "val": scenes.MIN_VAL_BOXES},
+        "made_larger_for_class_counts": made_larger,
     }
     scenes.write_split_files(args.splits_dir, miotcd_ids, groups, splits, meta)
     print(f"[scenes] wrote the split files to {args.splits_dir}: " + json.dumps(meta["images"]))

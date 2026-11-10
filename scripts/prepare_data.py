@@ -14,7 +14,9 @@ from pathlib import Path
 
 import numpy as np
 
-from truckdet.data.miotcd import IGNORE_UNDER, REFERENCE_COUNTS, check_ignore_classes, convert, count_differences
+from truckdet.data.miotcd import (
+    IGNORE_UNDER, REFERENCE_COUNTS, check_ignore_classes, convert, count_differences, count_notes,
+)
 from truckdet.runs import CHECK_FAILED
 from truckdet.sheets import label_sheets
 from truckdet.training import ANNOTATIONS, IMAGE_DIR
@@ -47,6 +49,8 @@ def main(argv: list[str] | None = None) -> None:
                                 else "DIFFERENT from the reference counts; find the cause of each difference:"))
     for line in differences:
         print("  - " + line)
+    for line in count_notes(counts):
+        print("[note] " + line)
 
     if args.eval_code:
         check_ignore_classes(args.eval_code)

@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. No training run yet, so no results yet.
+> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) ran on MIO-TCD and needs a second run for a larger val split. No training run yet, so no results yet.
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 

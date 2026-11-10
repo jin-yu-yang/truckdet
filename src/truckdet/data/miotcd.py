@@ -128,8 +128,9 @@ def convert(csv_path: str | Path, image_dir: str | Path, workers: int = 8) -> tu
 
 
 def count_differences(counts: dict) -> list[str]:
-    """The checks of design §4.5, "Counts": one line for each reference count that the converter does not give,
-    with what the converter knows about the cause."""
+    """The check of design §4.5, "Counts": one line for each reference count that the CSV does not give, and one
+    for images of the CSV that have no file. The reference counts are counts of the CSV: its rows, its images, and
+    its images with a `motorized_vehicle` row."""
     out = []
     pairs = [("images", "csv_images"), ("boxes", "csv_rows"),
              ("images_with_motorized_vehicle", "csv_images_with_motorized_vehicle")]
@@ -138,9 +139,19 @@ def count_differences(counts: dict) -> list[str]:
             out.append(f"{reference}: the CSV has {counts[key]:,}, the reference count is {REFERENCE_COUNTS[reference]:,}")
     if counts["images_missing_file"]:
         out.append(f"{counts['images_missing_file']:,} images of the CSV have no file and are left out")
+    return out
+
+
+def count_notes(counts: dict) -> list[str]:
+    """What the converter did to the rows of the CSV, as design §4.2 asks: recorded, and not a failed check."""
+    out = []
     if counts["boxes_dropped_zero_area"]:
         out.append(f"{counts['boxes_dropped_zero_area']:,} boxes have zero area after clipping and are dropped: "
                    f"{counts['boxes']:,} boxes remain of {counts['csv_rows']:,} rows")
+    if counts.get("boxes_clipped"):
+        out.append(f"{counts['boxes_clipped']:,} boxes went over the edge of their image and are clipped")
+    if counts.get("files_not_in_csv"):
+        out.append(f"{counts['files_not_in_csv']:,} image files have no row in the CSV and are not used")
     return out
 
 

@@ -185,12 +185,15 @@ if at("data"):
             f"&& tar -xf {LOCAL}/code.tar -C {LOCAL}/code")
     eval_code = glob.glob(f"{LOCAL}/code/**/localization_evaluation.py", recursive=True)[0]
 
-    # Exit code 3: a count is not the reference count. The cell goes on; find the cause before training.
+    # Exit code 3: a count of the CSV is not the reference count. The cell goes on; find the cause before training.
+    # (Boxes with zero area are dropped and printed as a note; that is not a difference.)
     counts_differ = run(f"python scripts/prepare_data.py --data-root {DATA_ROOT} --eval-code {eval_code} "
                         f"--sheets-dir {CHECKS}/labels", allowed=(0, 3))
     for name in ("annotations.json", "counts.json"):
         shutil.copy(f"{DATA_ROOT}/{name}", f"{CACHE}/{name}")
 
+    # If a class has too few boxes in the test or val split of the design's size, the script takes more
+    # scene groups for that split and prints the new size (design §4.5).
     split_failed = run(f"python scripts/make_split.py --data-root {DATA_ROOT} --splits-dir {SPLITS} "
                        f"--embeddings {CACHE}/embeddings.npy --sheets-dir {CHECKS}/scenes", allowed=(0, 3))
     run(f"python scripts/spike.py --image-dir {DATA_ROOT}/train --sheet {CHECKS}/coco_detections.jpg")
@@ -198,7 +201,7 @@ if at("data"):
     raise SystemExit(
         "Stage 1 finished. Before you go on:\\n"
         f"1. Counts: {'DIFFERENT from the reference counts (see above): find the cause of each difference' if counts_differ else 'equal to the reference counts'}.\\n"
-        f"2. Class counts and no overlap: {'FAILED (see above): make the splits larger with --test-images / --val-images' if split_failed else 'passed'}.\\n"
+        f"2. Class counts and no overlap: {'FAILED (see above): two splits share an image or a scene group, or the dataset cannot give each class its minimum of boxes' if split_failed else 'passed'}.\\n"
         f"3. Label completeness: open {CHECKS}/labels. Count the vehicles and pedestrians that have no box. "
         "If more than 5% have no box, the labels are not complete: record the rate and stop.\\n"
         f"4. Scene check: open {CHECKS}/scenes. Count the scene_split pairs that show the same camera view; accept "

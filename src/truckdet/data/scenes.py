@@ -25,7 +25,7 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
-from .miotcd import SPECIFIC_CLASSES, boxes_per_class, write_ids
+from .miotcd import SPECIFIC_CLASSES, boxes_per_class, category_id, write_ids
 
 EMBED_SIZE = 224
 N_GROUPS = 1000
@@ -81,26 +81,55 @@ def cluster_scenes(embeddings: np.ndarray, k: int = N_GROUPS, seed: int = SPLIT_
     return KMeans(n_clusters=k, n_init=1, random_state=seed).fit_predict(unit_rows(embeddings)).astype(np.int64)
 
 
-def split_by_group(groups: np.ndarray, n_test: int = TEST_IMAGES, n_val: int = VAL_IMAGES,
-                   seed: int = SPLIT_SEED) -> dict[str, np.ndarray]:
+def split_by_group(groups: np.ndarray, n_test: int = TEST_IMAGES, n_val: int = VAL_IMAGES, seed: int = SPLIT_SEED,
+                   class_boxes: np.ndarray | None = None,
+                   min_boxes: tuple[int, int] = (MIN_TEST_BOXES, MIN_VAL_BOXES)) -> dict[str, np.ndarray]:
     """{"test", "val", "train_pool"} -> sorted image positions. Whole groups, in a random order, go to test
-    until it has `n_test` images or more, then to val until it has `n_val` or more; the rest is the train pool."""
+    until it has `n_test` images or more, then to val until it has `n_val` or more; the rest is the train pool.
+
+    With `class_boxes` ([image, class] -> boxes, from `class_box_counts`) a split is also not complete before
+    each class has its minimum of boxes (`min_boxes`: test, val). This is the rule of design §4.5 for a split
+    with too few boxes of a class, "make the splits larger", with the smallest change: the order of the groups
+    is the same, so the first groups of a split are those of the split without the rule."""
     groups = np.asarray(groups)
-    order = np.random.default_rng(seed).permutation(np.unique(groups))
-    sizes = dict(zip(*np.unique(groups, return_counts=True)))
-    assigned, counts = {}, {"test": 0, "val": 0}
+    group_ids, inverse, sizes = np.unique(groups, return_inverse=True, return_counts=True)
+    order = np.random.default_rng(seed).permutation(group_ids)
+    row = {g: k for k, g in enumerate(group_ids.tolist())}
+    if class_boxes is None:
+        boxes_of_group = np.zeros((len(group_ids), 0), dtype=np.int64)
+    else:
+        boxes_of_group = np.zeros((len(group_ids), class_boxes.shape[1]), dtype=np.int64)
+        np.add.at(boxes_of_group, inverse, class_boxes)
+    targets = {"test": (n_test, min_boxes[0]), "val": (n_val, min_boxes[1])}
+    images = {name: 0 for name in targets}
+    boxes = {name: np.zeros(boxes_of_group.shape[1], dtype=np.int64) for name in targets}
+
+    def complete(name: str) -> bool:
+        n_images, minimum = targets[name]
+        return images[name] >= n_images and bool((boxes[name] >= minimum).all())
+
+    assigned = {}
     for g in order.tolist():
-        if counts["test"] < n_test:
-            name = "test"
-        elif counts["val"] < n_val:
-            name = "val"
-        else:
-            name = "train_pool"
+        name = "test" if not complete("test") else "val" if not complete("val") else "train_pool"
         assigned[g] = name
-        if name in counts:
-            counts[name] += sizes[g]
+        if name in targets:
+            images[name] += int(sizes[row[g]])
+            boxes[name] += boxes_of_group[row[g]]
     names = np.array([assigned[g] for g in groups.tolist()])
     return {name: np.flatnonzero(names == name) for name in ("test", "val", "train_pool")}
+
+
+def class_box_counts(coco: dict, image_ids) -> np.ndarray:
+    """[image, specific class] -> boxes, with the images in the order of `image_ids` (COCO ids) and the classes
+    in the order of `SPECIFIC_CLASSES`. The counts are those of `boxes_per_class`."""
+    position = {int(i): k for k, i in enumerate(image_ids)}
+    column = {category_id(name): j for j, name in enumerate(SPECIFIC_CLASSES)}
+    out = np.zeros((len(position), len(SPECIFIC_CLASSES)), dtype=np.int64)
+    for a in coco["annotations"]:
+        k, j = position.get(a["image_id"]), column.get(a["category_id"])
+        if k is not None and j is not None:
+            out[k, j] += 1
+    return out
 
 
 def random_split(n: int, n_test: int = TEST_IMAGES, n_val: int = VAL_IMAGES, seed: int = SPLIT_SEED) -> dict[str, np.ndarray]:

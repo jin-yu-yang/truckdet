@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from tests.tiny import write_synthetic_miotcd
-from truckdet.data.miotcd import read_ids
+from truckdet.data import scenes
+from truckdet.data.miotcd import SPECIFIC_CLASSES, boxes_per_class, read_ids
 
 ROOT = Path(__file__).parent.parent
 
@@ -44,6 +45,7 @@ def test_prepare_data_and_make_split(tmp_path, capsys):
                                    "--sheets-dir", str(tmp_path / "checks"), "--pairs", "4", "--num-workers", "0"])
     out = capsys.readouterr().out
     assert done.value.code == 3 and "make the split larger" in out and "scene check, random_split" in out
+    assert "the splits are NOT made larger" in out  # 60 images cannot give 100 boxes of each class
     splits = {name: read_ids(tmp_path / "splits" / f"{name}.txt") for name in ("test", "val", "train_pool", "train")}
     assert len(splits["test"]) >= 12 and len(splits["val"]) >= 6 and len(splits["train"]) == 20
     assert set(splits["train"]) <= set(splits["train_pool"])
@@ -51,6 +53,42 @@ def test_prepare_data_and_make_split(tmp_path, capsys):
     meta = json.loads((tmp_path / "splits" / "split_meta.json").read_text())
     assert meta["groups"] == 6 and meta["images"]["train"] == 20
     assert (tmp_path / "checks" / "scene_split_01.jpg").exists() and (root / "embeddings.npy").exists()
+    assert meta["made_larger_for_class_counts"] is None and meta["class_minimums"] == {"test": 100, "val": 30}
+
+
+def test_make_split_takes_more_groups_for_a_class_with_too_few_boxes(tmp_path, capsys, monkeypatch):
+    """Stage 1 on MIO-TCD: the val split of the design's size had 5 `bicycle` boxes, and 30 are needed."""
+    root = write_synthetic_miotcd(tmp_path / "data", n_images=60, scenes=6)
+    with pytest.raises(SystemExit):
+        script("prepare_data").main(["--data-root", str(root)])
+    coco = json.loads((root / "annotations.json").read_text())
+    arguments = ["--data-root", str(root), "--device", "cpu", "--groups", "6", "--test-images", "6", "--val-images", "6",
+                 "--train-images", "10", "--num-workers", "0"]
+    with pytest.raises(SystemExit):
+        script("make_split").main([*arguments, "--splits-dir", str(tmp_path / "plain")])
+    plain = {name: read_ids(tmp_path / "plain" / f"{name}.txt") for name in ("test", "val")}
+    by_id = {im["miotcd_id"]: im["id"] for im in coco["images"]}
+
+    def fewest(ids):  # the smallest number of boxes that a specific class has in these images
+        counts = boxes_per_class(coco, [by_id[i] for i in ids])
+        return min(counts[name] for name in SPECIFIC_CLASSES)
+
+    # Minimums that the plain test split has and the plain val split does not have.
+    need_val = fewest(plain["val"]) + 1
+    monkeypatch.setattr(scenes, "MIN_TEST_BOXES", fewest(plain["test"]))
+    monkeypatch.setattr(scenes, "MIN_VAL_BOXES", need_val)
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as done:
+        script("make_split").main([*arguments, "--splits-dir", str(tmp_path / "larger")])
+    out = capsys.readouterr().out
+    larger = {name: read_ids(tmp_path / "larger" / f"{name}.txt") for name in ("test", "val", "train_pool", "train")}
+    assert done.value.code == 0 and "the splits are made larger" in out and "class counts: passed" in out
+    assert larger["test"] == plain["test"] and set(plain["val"]) < set(larger["val"]) and fewest(larger["val"]) >= need_val
+    assert len(larger["train"]) == 10 and set(larger["train"]) <= set(larger["train_pool"])
+    meta = json.loads((tmp_path / "larger" / "split_meta.json").read_text())
+    assert meta["made_larger_for_class_counts"]["images_at_the_sizes_of_the_design"] == {"test": len(plain["test"]),
+                                                                                         "val": len(plain["val"])}
+    assert meta["images"]["val"] == len(larger["val"]) and meta["class_minimums"]["val"] == need_val
 
 
 def test_train_select_gate_evaluate_analyse(data_root, splits_dir, tmp_path, capsys):

@@ -4,7 +4,7 @@ import numpy as np
 
 from tests.tiny import TINY_SIZE, make_tiny_rfdetr
 from truckdet.data import scenes
-from truckdet.data.miotcd import load_annotations, read_ids
+from truckdet.data.miotcd import SPECIFIC_CLASSES, boxes_per_class, load_annotations, read_ids
 
 
 def test_split_by_group_keeps_groups_whole():
@@ -22,6 +22,48 @@ def test_split_by_group_keeps_groups_whole():
     assert all(np.array_equal(splits[name], again[name]) for name in splits)
     other = scenes.split_by_group(groups, 200, 60, seed=1)
     assert not np.array_equal(other["test"], splits["test"])
+
+
+def test_split_grows_until_each_class_has_its_minimum():
+    """Design §4.5: "each specific class has 100 boxes or more in the test split and 30 or more in the val split.
+    If not, make the splits larger." On MIO-TCD the val split of 2,016 images had 5 `bicycle` boxes."""
+    rng = np.random.default_rng(0)
+    groups = rng.integers(0, 40, size=1000)
+    class_boxes = np.zeros((1000, 2), dtype=np.int64)
+    class_boxes[:, 0] = 1  # a common class: one box in every image
+    class_boxes[np.isin(groups, [3, 8, 17, 21, 29, 33]), 1] = 1  # a rare class: only six scenes have it
+    plain = scenes.split_by_group(groups, 200, 60, seed=0)
+    assert class_boxes[plain["val"], 1].sum() < 20  # the case: too few boxes of the rare class at the plain size
+    larger = scenes.split_by_group(groups, 200, 60, seed=0, class_boxes=class_boxes, min_boxes=(20, 20))
+
+    assert sorted(np.concatenate(list(larger.values())).tolist()) == list(range(1000))
+    assert not scenes.overlap_errors(larger, groups)
+    for name in ("test", "val"):
+        assert len(larger[name]) >= {"test": 200, "val": 60}[name]
+        assert (class_boxes[larger[name]].sum(axis=0) >= 20).all()
+    # The groups keep their order: a split is a run of the random order, the plain test split is the start of the
+    # larger one, and a split with its last group taken away is not complete.
+    order = np.random.default_rng(0).permutation(np.unique(groups)).tolist()
+    in_test, in_val = set(np.unique(groups[larger["test"]]).tolist()), set(np.unique(groups[larger["val"]]).tolist())
+    assert in_test == set(order[: len(in_test)]) and in_val == set(order[len(in_test) : len(in_test) + len(in_val)])
+    assert set(plain["test"].tolist()) <= set(larger["test"].tolist())
+    for run, n_images in ((order[: len(in_test) - 1], 200), (order[len(in_test) : len(in_test) + len(in_val) - 1], 60)):
+        positions = np.flatnonzero(np.isin(groups, run))
+        assert len(positions) < n_images or (class_boxes[positions].sum(axis=0) < 20).any()
+    # Minimums that the plain split has change nothing.
+    same = scenes.split_by_group(groups, 200, 60, seed=0, class_boxes=class_boxes, min_boxes=(0, 0))
+    assert all(np.array_equal(plain[name], same[name]) for name in plain)
+
+
+def test_class_box_counts_are_those_of_boxes_per_class(data_root):
+    coco = load_annotations(data_root / "annotations.json")
+    ids = [im["id"] for im in coco["images"]][::-1]
+    counts = scenes.class_box_counts(coco, ids)
+    assert counts.shape == (len(ids), 10)
+    total = boxes_per_class(coco)
+    assert counts.sum(axis=0).tolist() == [total[name] for name in SPECIFIC_CLASSES]
+    one = boxes_per_class(coco, ids[:1])
+    assert counts[0].tolist() == [one[name] for name in SPECIFIC_CLASSES]
 
 
 def test_overlap_errors_are_found():

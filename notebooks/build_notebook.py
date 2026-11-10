@@ -160,11 +160,15 @@ import glob
 import shutil
 
 URL = "https://tcd.miovision.com/static/dataset"
-TAR = f"{DRIVE_ROOT}/MIO-TCD-Localization.tar"
-if not os.path.exists(TAR):
-    run(f"wget -c -nv -O {TAR}.part {URL}/MIO-TCD-Localization.tar && mv {TAR}.part {TAR}")
+TAR = f"{DRIVE_ROOT}/MIO-TCD-Localization.tar"   # the copy on Drive, for later sessions
+LOCAL_TAR = "/content/MIO-TCD-Localization.tar"
 if not glob.glob(f"{LOCAL}/**/gt_train.csv", recursive=True):
-    run(f"mkdir -p {LOCAL} && tar -xf {TAR} -C {LOCAL}")
+    if not os.path.exists(TAR):
+        # Download to local disk first (a download straight to Drive is slow and cannot continue), then copy.
+        run(f"wget -c --progress=dot:giga -O {LOCAL_TAR} {URL}/MIO-TCD-Localization.tar")
+        run(f"cp {LOCAL_TAR} {TAR}.part && mv {TAR}.part {TAR}")
+    source = LOCAL_TAR if os.path.exists(LOCAL_TAR) else TAR
+    run(f"mkdir -p {LOCAL} && tar -xf {source} -C {LOCAL}")
 DATA_ROOT = os.path.dirname(glob.glob(f"{LOCAL}/**/gt_train.csv", recursive=True)[0])
 print("dataset:", DATA_ROOT)
 if os.path.exists(f"{CACHE}/annotations.json") and not os.path.exists(f"{DATA_ROOT}/annotations.json"):
@@ -181,14 +185,14 @@ if at("data"):
             f"&& tar -xf {LOCAL}/code.tar -C {LOCAL}/code")
     eval_code = glob.glob(f"{LOCAL}/code/**/localization_evaluation.py", recursive=True)[0]
 
-    # Exit code 1: a count is not the reference count. The cell goes on; find the cause before training.
+    # Exit code 3: a count is not the reference count. The cell goes on; find the cause before training.
     counts_differ = run(f"python scripts/prepare_data.py --data-root {DATA_ROOT} --eval-code {eval_code} "
-                        f"--sheets-dir {CHECKS}/labels", allowed=(0, 1))
+                        f"--sheets-dir {CHECKS}/labels", allowed=(0, 3))
     for name in ("annotations.json", "counts.json"):
         shutil.copy(f"{DATA_ROOT}/{name}", f"{CACHE}/{name}")
 
     split_failed = run(f"python scripts/make_split.py --data-root {DATA_ROOT} --splits-dir {SPLITS} "
-                       f"--embeddings {CACHE}/embeddings.npy --sheets-dir {CHECKS}/scenes", allowed=(0, 1))
+                       f"--embeddings {CACHE}/embeddings.npy --sheets-dir {CHECKS}/scenes", allowed=(0, 3))
     run(f"python scripts/spike.py --image-dir {DATA_ROOT}/train --sheet {CHECKS}/coco_detections.jpg")
 
     raise SystemExit(
@@ -244,8 +248,8 @@ GATE = """# Stage 5. Learning-rate runs of H, then of F (its heads use the rate 
 if at("gate") or after("gate"):
     tune("H")
     tune("F")
-    # Exit code 2: the gate fails.
-    gate_failed = run(f"python scripts/gate.py --runs-root {RUNS} {COMMON}", allowed=(0, 2))
+    # Exit code 3: the gate fails.
+    gate_failed = run(f"python scripts/gate.py --runs-root {RUNS} {COMMON}", allowed=(0, 3))
     if gate_failed:
         raise SystemExit("The gate fails: stop here, and report that the data cannot separate the arms (design §2). "
                          "The other 14 runs are not necessary.")

@@ -35,7 +35,7 @@ def test_prepare_data_and_make_split(tmp_path, capsys):
         script("prepare_data").main(["--data-root", str(root), "--eval-code", str(code), "--sheets-dir", str(tmp_path / "checks"),
                                      "--label-images", "8"])
     out = capsys.readouterr().out
-    assert done.value.code == 1 and "DIFFERENT from the reference counts" in out and "lists the same 6 classes" in out
+    assert done.value.code == 3 and "DIFFERENT from the reference counts" in out and "lists the same 6 classes" in out
     assert json.loads((root / "counts.json").read_text())["images"] == 60 and (tmp_path / "checks" / "labels_01.jpg").exists()
 
     with pytest.raises(SystemExit) as done:  # the class counts of a 60-image dataset are too small
@@ -43,7 +43,7 @@ def test_prepare_data_and_make_split(tmp_path, capsys):
                                    "--groups", "6", "--test-images", "12", "--val-images", "6", "--train-images", "20",
                                    "--sheets-dir", str(tmp_path / "checks"), "--pairs", "4", "--num-workers", "0"])
     out = capsys.readouterr().out
-    assert done.value.code == 1 and "make the split larger" in out and "scene check, random_split" in out
+    assert done.value.code == 3 and "make the split larger" in out and "scene check, random_split" in out
     splits = {name: read_ids(tmp_path / "splits" / f"{name}.txt") for name in ("test", "val", "train_pool", "train")}
     assert len(splits["test"]) >= 12 and len(splits["val"]) >= 6 and len(splits["train"]) == 20
     assert set(splits["train"]) <= set(splits["train_pool"])
@@ -84,7 +84,7 @@ def test_train_select_gate_evaluate_analyse(data_root, splits_dir, tmp_path, cap
 
     with pytest.raises(SystemExit) as done:
         script("gate").main(["--runs-root", str(runs_root), "--bootstrap", "20", *common])
-    assert done.value.code in (0, 2) and "AP_F − AP_H" in capsys.readouterr().out
+    assert done.value.code in (0, 3) and "AP_F − AP_H" in capsys.readouterr().out
 
     for arm in "HDBF":
         train(["--config", cfg[arm], "--selected", "--seed", "1", "--output-root", str(runs_root), "--device", "cpu", "--no-eval", *common])

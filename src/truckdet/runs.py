@@ -32,6 +32,9 @@ SPLITS = ("val", "test")
 SEEDS = (0, 1, 2)
 SELECTION = "selection.json"
 GATE = "gate.json"
+# Exit code of a script whose check has a negative outcome (counts differ, a split is too small, the gate fails).
+# Not 1 (an exception) and not 2 (a wrong argument): the notebook goes on after this code only.
+CHECK_FAILED = 3
 
 
 def split_ground_truth(data_root, splits_dir, split: str, coco: dict | None = None) -> dict:

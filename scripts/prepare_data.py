@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from truckdet.data.miotcd import IGNORE_UNDER, REFERENCE_COUNTS, check_ignore_classes, convert, count_differences
+from truckdet.runs import CHECK_FAILED
 from truckdet.sheets import label_sheets
 from truckdet.training import ANNOTATIONS, IMAGE_DIR
 
@@ -59,7 +60,7 @@ def main(argv: list[str] | None = None) -> None:
         sheets = label_sheets(coco, sorted(picks.tolist()), args.data_root / IMAGE_DIR, args.sheets_dir)
         print(f"[check] label completeness: look at {len(sheets)} sheets in {args.sheets_dir} ({len(picks)} images). "
               "Count the vehicles and pedestrians with no box. More than 5%: record the rate and stop.")
-    raise SystemExit(1 if differences else 0)
+    raise SystemExit(CHECK_FAILED if differences else 0)
 
 
 if __name__ == "__main__":

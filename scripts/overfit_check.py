@@ -6,8 +6,9 @@
 - The loss of arms H, D and B decreases.
 - A stopped and resumed run continues the loss curve (arm F is stopped after a third of its epochs).
 
-The runs use batch 4 with no accumulation, so 16 images are 4 optimizer steps per epoch. Use a new output
-folder (not the folder of the real runs).
+The runs use batch 4 with no accumulation, so 16 images are 4 optimizer steps per epoch, and rates from the
+middle of the design's lists (heads 1e-3, the body of F 3e-5). Use a new output folder (not the folder of the
+real runs).
 """
 
 import argparse
@@ -32,10 +33,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--configs", type=Path, default=Path("configs"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--images", type=int, default=16)
-    parser.add_argument("--epochs-f", type=int, default=150)
+    parser.add_argument("--epochs-f", type=int, default=200)
     parser.add_argument("--epochs-other", type=int, default=20)
-    parser.add_argument("--lr", type=float, default=1e-4, help="heads of F, and all trainable parameters of H, D, B")
-    parser.add_argument("--body-lr", type=float, default=1e-4, help="all other parameters of F")
+    parser.add_argument("--lr", type=float, default=1e-3, help="heads of F, and all trainable parameters of H, D, B")
+    parser.add_argument("--body-lr", type=float, default=3e-5, help="all other parameters of F")
     parser.add_argument("--arms", default="FHDB")
     args = parser.parse_args(argv)
 
@@ -63,15 +64,20 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  [{'ok' if decreased else 'FAILED'}] the loss decreases")
         if arm == "F":
             k = max(1, epochs // 3)
-            continues = losses[k] < losses[0] and abs(losses[k] - losses[k - 1]) < 0.5 * abs(losses[0] - losses[k - 1]) + 1e-6
+            # The first epoch after the resume is near the epoch before it, not near the start of the run, and
+            # the learning rate goes on down its cosine. (The tests show the exact case: the same weights.)
+            continues = (abs(losses[k] - losses[k - 1]) < abs(losses[k] - losses[0])
+                         and rows[k]["lr"] < rows[k - 1]["lr"])
             print(f"  [{'ok' if continues else 'FAILED'}] the resumed run continues the loss curve: epoch {k - 1} "
-                  f"{losses[k - 1]:.3f}, epoch {k} (first after the resume) {losses[k]:.3f}, epoch 0 {losses[0]:.3f}")
+                  f"{losses[k - 1]:.3f}, epoch {k} (first after the resume) {losses[k]:.3f}, epoch 0 {losses[0]:.3f}; "
+                  f"learning rate {rows[k - 1]['lr']:.2e} -> {rows[k]['lr']:.2e}")
             model, meta = load_run_model(run_dir, args.device)
             predictions, _ = _predict_split(model, gt, args.data_root, resolve_loaders()[1](cfg.model_name),
                                             torch.device(args.device), 8, 0)
             ap50 = score_predictions(gt, predictions)["AP50"]
             reached = ap50 > 0.9
-            print(f"  [{'ok' if reached else 'FAILED'}] AP50 on the {len(ids)} training images is above 0.9: {ap50:.3f}")
+            print(f"  [{'ok' if reached else 'FAILED'}] AP50 on the {len(ids)} training images is above 0.9: {ap50:.3f}"
+                  + ("" if reached else " (if the loss still decreases, try more epochs: --epochs-f 400)"))
             ok &= continues and reached
     print("stage 4: " + ("all checks passed" if ok else "SOME CHECKS FAILED"))
     raise SystemExit(0 if ok else 1)

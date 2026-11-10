@@ -7,7 +7,7 @@ at least 5 times its bootstrap standard error. If not, stop, and report that the
 import argparse
 from pathlib import Path
 
-from truckdet.runs import gate_text, run_gate
+from truckdet.runs import CHECK_FAILED, gate_text, run_gate
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     result = run_gate(args.runs_root, args.data_root, args.splits_dir, args.bootstrap)
     print(gate_text(result))
-    raise SystemExit(0 if result["passed"] else 2)
+    raise SystemExit(0 if result["passed"] else CHECK_FAILED)
 
 
 if __name__ == "__main__":

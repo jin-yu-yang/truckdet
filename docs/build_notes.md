@@ -132,6 +132,12 @@ value on 1e-6, 3e-6, 1e-5, …, 1e-2. The choices are in `runs/selection.json`.
   lowers its scale after such a step; a few at the start of a run are normal, and they are in
   `metrics.jsonl`.
 - **k-means is scikit-learn's**, with one start and a fixed seed.
+- **Read the pairs of the scene check, not the similarity.** The mean feature of the backbone has a
+  large part that all images share: two unrelated photographs had a cosine similarity of about 0.93
+  (258 LVIS images). The sheets print the number, but only the two pictures show a camera view.
+- **Exit codes.** A script whose check has a negative outcome (a count differs, a split is too small,
+  the gate fails) exits with code 3. The notebook goes on, or stops with the design's words, on that
+  code only; a crash (1) or a wrong argument (2) stops it as an error.
 
 ## 5. The check on real images
 

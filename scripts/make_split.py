@@ -18,6 +18,7 @@ import torch
 
 from truckdet.data import scenes
 from truckdet.data.miotcd import CLASSES, boxes_per_class, load_annotations
+from truckdet.runs import CHECK_FAILED
 from truckdet.sheets import pair_sheets
 from truckdet.training import ANNOTATIONS, IMAGE_DIR, resolve_loaders
 
@@ -107,7 +108,7 @@ def main(argv: list[str] | None = None) -> None:
     }
     scenes.write_split_files(args.splits_dir, miotcd_ids, groups, splits, meta)
     print(f"[scenes] wrote the split files to {args.splits_dir}: " + json.dumps(meta["images"]))
-    raise SystemExit(1 if errors else 0)
+    raise SystemExit(CHECK_FAILED if errors else 0)
 
 
 if __name__ == "__main__":

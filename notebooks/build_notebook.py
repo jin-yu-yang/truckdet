@@ -22,11 +22,11 @@ INTRO = """# truckdet: LoRA position in RF-DETR, backbone against decoder, on MI
 | `"spike"` | 0 | Model facts on the real checkpoint; images per second and peak memory of each arm | 5 min |
 | `"data"` | 1 | Download MIO-TCD (once, to Drive), convert, scene groups, split files, check sheets | 30 min the first time |
 | `"checks"` | 2, 3, 4 | The COCO checkpoint with no training on val; the training loop on 16 images | 15 min |
-| `"gate"` | 5 | Learning-rate runs of H and F (6 runs), the choice, **the gate** | about 8 h |
-| `"main"` | 6 | Learning-rate runs of D and B (6 runs); seeds 1 and 2 of all arms (8 runs) | about 20 h |
+| `"gate"` | 5 | Learning-rate runs of H and F (6 runs; 8 if the best rate of each arm is at an end of its list), the choice, **the gate** | 11 to 15 h |
+| `"main"` | 6 | Learning-rate runs of D and B (6 to 8 runs); seeds 1 and 2 of all arms (8 runs) | 25 to 29 h |
 | `"report"` | 7, 8 | The test split, one time for each of the 12 final checkpoints; the report | 1 h |
 
-The times of `gate` and `main` are the design's estimate (an F run or a B run 2 to 3 hours, an H run or a D run about half). Stage `spike` measures the real speed and prints the hours for one run.
+The times of `gate` and `main` come from the runs of stage `gate` on a T4: a run of H takes 1.3 hours and a run of F 2.3 hours. A run of D (about 1.6 hours) and a run of B (about 2.1 hours) are estimates until stage `main` runs. Stage `spike` times the training step only, so its hours are too low; each epoch line of a run prints the real speed and the time that remains.
 
 **If Colab disconnects or the session ends,** *Run all* again with the same `STAGE`, also in a later session: the dataset and the caches are on Drive, finished runs train nothing, and the interrupted run resumes from its last finished epoch.
 

@@ -26,10 +26,11 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
 | The scripts `make_split.py` and `spike.py --image-dir` | The same stand-in images, real backbone, CPU | They run; the sheets look right |
 | Stages 2 to 4 (`evaluate.py --start-model`, `overfit_check.py`): stage `checks` of the notebook | MIO-TCD, Colab T4, fp16 | **All passed** (§15). The start model on the val split: AP50 0.77 for `car` and 0.85 for `bus`. On 16 images, arm F reaches AP50 1.000, the loss of H, D and B decreases, and a stopped run resumes |
-| **Not run:** a full training run (12 epochs of 8,000 images), the val score of a trained run, the learning-rate choice and the gate | | Stage `gate` of the notebook. The scripts ran in the tests, on the tiny model |
+| Stage 5: the learning-rate runs of H and F, and the gate: stage `gate` of the notebook | MIO-TCD, Colab T4, fp16 | **The gate passes** (§16): AP_F − AP_H = +0.172 on the val split, 12.0 times its standard error. 8 runs of 12 epochs, each with 0 skipped batches. H chose the rate 1e-3; F chose 1e-5 for the body |
+| **Not run:** a run of D or of B, seeds 1 and 2, the test split and the report | | Stages `main` and `report` of the notebook. The scripts ran in the tests, on the tiny model |
 
 The split is accepted (§13), the label check passes with the count of clear objects (§14), and
-stages 2 to 4 passed on MIO-TCD (§15). The next stage is `gate`: the first full training runs.
+stages 2 to 4 passed on MIO-TCD (§15). The gate passed (§16). The next stage is `main`.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -811,3 +812,84 @@ loading of the images and 6 scores of the val split.
 **Checked for stage `gate`.** The run left a folder `start_model` in the runs folder on Drive. The
 learning-rate choice lists only folders with a run name, so it does not read it
 (`runs.list_runs`; `select_lr.py` on such a folder asks for the three rates of H).
+
+## 16. Stage 5 on MIO-TCD: the learning rates of H and F, and the gate
+
+Stage `gate` of the notebook at commit `707caef`, 2026-11-10 to 2026-11-11, on the T4 with fp16, in
+one session of 14 hours and 40 minutes. These were the first full training runs: 12 epochs of the
+8,000-image train subset, an effective batch of 16 (4 × 4), 6,000 optimizer steps. Each run ended
+with the score of its final checkpoint on the val split (2,017 images). All numbers here are for
+seed 0 on the val split. They are for the choices and the gate. They are not readings: P1, P2 and
+P3 are read on the test split, with three seeds.
+
+**Arm H: heads only.**
+
+| Learning rate | Val AP | Val AP50 | Loss of the last epoch | |
+|---|---|---|---|---|
+| 1e-4 | 0.3149 | 0.439 | 5.451 | |
+| 3e-4 | 0.3386 | 0.472 | 5.342 | |
+| **1e-3** | **0.3497** | 0.488 | 5.295 | chosen |
+| 3e-3 | 0.3491 | 0.484 | 5.315 | added by the rule |
+
+The best of the three rates of the design was 1e-3, at the end of the list, so the rule of design
+§6 added one step, 3e-3. It scored lower, so 1e-3 is the choice. The two are 0.0006 apart; with the
+tie rule (equal to 3 decimal places: the lower rate) the choice would be the same.
+
+**Arm F: full fine-tuning.** The heads use the rate of H, 1e-3.
+
+| Learning rate of all other parameters | Val AP | Val AP50 | Loss of the last epoch | |
+|---|---|---|---|---|
+| 3e-6 | 0.5090 | 0.684 | 3.621 | added by the rule |
+| **1e-5** | **0.5213** | 0.701 | 3.254 | chosen |
+| 3e-5 | 0.5014 | 0.674 | 3.159 | |
+| 1e-4 | 0.3840 | 0.531 | 3.571 | |
+
+The best of the three rates of the design was 1e-5, at the low end, so the rule added 3e-6. It
+scored lower, so 1e-5 is the choice. The chosen rate is now inside its list for both arms. For F
+this is the answer to a risk of design §11 ("F is not fully tuned"): a lower and a higher rate are
+both worse.
+
+**The gate: passes.** AP_F − AP_H on the val split = +0.172 (0.350 → 0.521). The bootstrap standard
+error is 0.0143 (400 resamples of the 513 scene groups of the val split), so the difference is 12.0
+times its standard error. The design asks for 0.05 AP or more and 5 times or more. The start model
+scored 0.188 on the same split (§15).
+
+**The checks of each run.**
+
+- **No skipped batch:** 0 batches with a loss that was not finite, in each of the 8 runs.
+- **The schedule:** the learning rate reaches its peak at optimizer step 300 (5% of 6,000) and goes
+  down to zero at the end, in each run.
+- **The same start:** the loss of the first batch is 9.0488 in each of the 8 runs.
+- **The merge difference** is 0 for these runs: H and F have no adapters.
+- **The fp16 scaler** skipped 4 of 6,000 optimizer steps in each run of H, and 8 to 10 in each run
+  of F. The 4 of H are the same in the four runs: 2 in epoch 0, 1 in epoch 4 and 1 in epoch 8. They
+  do not come from the data or the rate. The scaler doubles its scale after 2,000 steps with no
+  skip, which is 4 epochs; here the next step is then not finite in fp16, and the scaler skips it
+  and halves the scale again. So a run loses one step for each such try. Arms D and B have the same
+  number of steps, so expect the same there.
+
+**The time, and why it was 14 hours and 40 minutes.** Before the run I gave "about 9 hours". Two
+things made it longer.
+
+1. **8 runs, not 6.** The best rate was at an end of its list for each arm, so each arm had a fourth
+   run.
+2. **A run is slower than the time of stage 0** (§6). Stage 0 timed the training step on one batch
+   that was already on the GPU. A run also reads and resizes the images, and its targets are the
+   real boxes.
+
+| Arm | Images per second, stage 0 | Images per second, a run | Hours for one run |
+|---|---|---|---|
+| H | 28.1 | 21.2 | 1.26 (the estimate was 0.95) |
+| F | 13.5 | 11.5 | 2.33 (the estimate was 1.98) |
+| D | 21.7 | not run yet | about 1.55 (estimate) |
+| B | 15.4 | not run yet | about 2.07 (estimate) |
+
+The 8 runs trained for 14.37 hours. The other 18 minutes are the start of the session, the 8
+scores of the val split and the gate. An epoch takes 90 to 105 seconds more than the time of stage
+0, for H and for F; the estimates for D and B add the same.
+
+**The time of stage `main`.** 3 runs of D (4.7 hours) and 3 runs of B (6.2 hours), then seeds 1 and 2
+of the four arms (2 × 7.2 = 14.4 hours): about 25 hours. A fourth run of D adds 1.6 hours, and a
+fourth run of B adds 2.1 hours, so 29 hours at most. The intro of the notebook has these times
+now. The rule of design §10 for a total that is too large (a smaller train subset for all arms) is
+not used: the 8 runs of H and F would need a new run each.

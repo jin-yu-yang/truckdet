@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) is finished: the counts and the class counts pass, and the split of the project is in [splits/](splits/README.md). It is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). The label check passes: 2.0% of the clear objects have no box. There is no training run yet, so no results yet.
+> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) is finished: the counts and the class counts pass, and the split of the project is in [splits/](splits/README.md). It is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). The label check passes: 2.0% of the clear objects have no box. Stages 2 to 4 (the checks before a real run) passed on MIO-TCD: the start model scores AP50 0.77 on `car` and 0.85 on `bus` with no training, and the training loop fits 16 images. The next stage is the gate: the first full training runs. No results yet.
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 

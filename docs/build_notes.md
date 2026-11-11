@@ -25,12 +25,11 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
 | The scripts `make_split.py` and `spike.py --image-dir` | The same stand-in images, real backbone, CPU | They run; the sheets look right |
-| **Not run:** a training run on a GPU | | Stage 0 timed 23 steps of each arm (§6). Stage `checks` of the notebook is the first run with a data loader, checkpoints and an evaluation |
-| **Not run:** the start model and a training run on MIO-TCD | | Stage `checks` of the notebook |
+| Stages 2 to 4 (`evaluate.py --start-model`, `overfit_check.py`): stage `checks` of the notebook | MIO-TCD, Colab T4, fp16 | **All passed** (§15). The start model on the val split: AP50 0.77 for `car` and 0.85 for `bus`. On 16 images, arm F reaches AP50 1.000, the loss of H, D and B decreases, and a stopped run resumes |
+| **Not run:** a full training run (12 epochs of 8,000 images), the val score of a trained run, the learning-rate choice and the gate | | Stage `gate` of the notebook. The scripts ran in the tests, on the tiny model |
 
-So stage `checks` of the notebook is the first training run on the GPU, and the first run of the
-model on MIO-TCD images. The split is accepted (§13), and the label check passes with the count of
-clear objects (§14). So each check of stage 1 has its result, and stage `checks` can start.
+The split is accepted (§13), the label check passes with the count of clear objects (§14), and
+stages 2 to 4 passed on MIO-TCD (§15). The next stage is `gate`: the first full training runs.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -734,3 +733,81 @@ one arm.
 With this, each check of stage 1 has its result: the counts, the label check, the class counts, no
 overlap, the group check and the split check passed, and the scene measurement is recorded (§13).
 The next stage is `checks`.
+
+## 15. Stages 2 to 4 on MIO-TCD: stage `checks`
+
+Stage `checks` of the notebook at commit `02a5757`, 2026-11-10, on the T4 with fp16. It read the
+accepted split from the repository (`/content/truckdet/splits`: grid embedding, limit 0.7214). This
+was the first run of the model on MIO-TCD images, and the first training with a data loader,
+checkpoints and an evaluation on the GPU. All checks passed.
+
+**Stage 2: the start model on the val split.** The COCO checkpoint with the class heads of design
+§5.4 and no training, on the 2,017 val images: AP 0.188, AP50 0.282.
+
+| Class | AP50 | The COCO row of its head |
+|---|---|---|
+| `bus` | 0.851 | `bus` |
+| `car` | 0.768 | `car` |
+| `motorcycle` | 0.244 | `motorcycle` |
+| `pedestrian` | 0.242 | `person` |
+| `bicycle` | 0.218 | `bicycle` |
+| `pickup_truck` | 0.212 | `truck` |
+| `articulated_truck` | 0.160 | `truck` |
+| `single_unit_truck` | 0.117 | `truck` |
+| `work_van` | 0.009 | `car` |
+| `non-motorized_vehicle` | 0.000 | none |
+
+- The check is "AP50 of `car` and `bus` above zero; an AP near zero shows an error in the box format
+  or the resize". 0.77 and 0.85 are far above zero, so the boxes and the resize are correct on the
+  real images. The reference of design §2 is 0.20 mAP50 for a COCO YOLOv4 (six merged classes).
+- The low classes are as the head rows predict. The three truck classes have the same row, so the
+  start model cannot tell them apart. `work_van` has the row of `car` and loses to it.
+  `non-motorized_vehicle` has no COCO row.
+- Each arm starts from this model (step 0 gives its output exactly), so AP 0.188 is the start of
+  each arm on the val split.
+
+**Stage 4: the training loop on 16 images.**
+
+| Arm | Epochs | Loss, first → last | Batches with a loss that is not finite | Steps the fp16 scaler skipped | Check |
+|---|---|---|---|---|---|
+| F | 200 | 9.551 → 0.233 | 0 | 8 of 800 | AP50 on the 16 images: **1.000** (above 0.9). The resumed run continues |
+| H | 20 | 9.551 → 4.649 | 0 | 3 of 80 | The loss decreases |
+| D | 20 | 9.551 → 4.229 | 0 | 4 of 80 | The loss decreases |
+| B | 20 | 9.551 → 2.742 | 0 | 4 of 80 | The loss decreases |
+
+- **These losses are not a result.** They are training losses on 16 images after 20 epochs. They show
+  that each arm trains. They say nothing about P1.
+- **The loss of epoch 0 is 9.5513 for each of the four arms.** The scaler skipped the first steps of
+  each run (4 of 4 for F; 3 of 4 for H, D and B, whose one step came after the last batch). So the
+  loss of epoch 0 is the loss of the start model on the same four batches. Four arms with the same
+  value to 4 decimal places: the arms start from one model and see the same images in the same
+  order, on the GPU too.
+- **The scaler skips are at the start,** as in stage 0 (§6): the scale starts at 65,536 and halves
+  after each skipped step. After epoch 2 there are 2 more for F (epochs 6 and 80), 1 for D and 1 for
+  B. A full run has 6,000 optimizer steps.
+
+**The resume.** Arm F stopped after epoch 65 and started again from `last.pt`.
+
+- The check passed: the loss of epoch 66 (2.308) is near that of epoch 65 (1.800) and not near that
+  of epoch 0 (9.551), and the learning rate goes on (8.01e-4 → 7.94e-4).
+- The scaler skipped no step in epoch 66. A new scaler skips the first steps (see epoch 0), so the
+  state of the scaler came back from the checkpoint. The tests cannot show this: they run on a CPU,
+  where the scaler is off.
+- The step of +0.51 at the resume is the largest of the 90 epochs around it (the next largest is
+  +0.41; the standard deviation of a step is 0.19). The mean loss of the 10 epochs before the
+  resume is 2.08, and that of the 10 epochs after it is 2.04. So there is no lasting change, and one
+  resume cannot tell a short disturbance from the noise of an epoch of 4 steps.
+- I looked for state that a checkpoint can lose, and found none: the real model has no buffers and
+  no batch normalisation (48 `LayerNorm` and 9 `RfDetrLayerNorm` layers), so its parameters are its
+  whole state, and a checkpoint of arm F holds all of them. On a CPU the resumed run has exactly
+  the weights of the run with no stop (`tests/test_training.py`).
+- A disturbance of 2 epochs here is 8 optimizer steps. In a full run that is 8 of 6,000.
+
+**The speed here is not the speed of a run.** An epoch of 16 images is 1 to 2 seconds, and a large
+part of it is the start of the loader. The times of stage 0 (§6) stay the estimate: 0.95 hours for
+a run of H and 1.98 for a run of F, so about 9 hours for the 6 runs of stage `gate`, plus the
+loading of the images and 6 scores of the val split.
+
+**Checked for stage `gate`.** The run left a folder `start_model` in the runs folder on Drive. The
+learning-rate choice lists only folders with a run name, so it does not read it
+(`runs.list_runs`; `select_lr.py` on such a folder asks for the three rates of H).

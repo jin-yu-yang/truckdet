@@ -1,0 +1,168 @@
+{
+  "boxes_per_class": {
+    "test": {
+      "articulated_truck": 1105,
+      "bicycle": 661,
+      "bus": 1932,
+      "car": 17591,
+      "motorcycle": 162,
+      "motorized_vehicle": 3446,
+      "non-motorized_vehicle": 196,
+      "pedestrian": 1580,
+      "pickup_truck": 2318,
+      "single_unit_truck": 779,
+      "work_van": 826
+    },
+    "train": {
+      "articulated_truck": 396,
+      "bicycle": 150,
+      "bus": 695,
+      "car": 15033,
+      "motorcycle": 70,
+      "motorized_vehicle": 1576,
+      "non-motorized_vehicle": 130,
+      "pedestrian": 391,
+      "pickup_truck": 3679,
+      "single_unit_truck": 193,
+      "work_van": 582
+    },
+    "train_pool": {
+      "articulated_truck": 2206,
+      "bicycle": 1026,
+      "bus": 4029,
+      "car": 85178,
+      "motorcycle": 503,
+      "motorized_vehicle": 8863,
+      "non-motorized_vehicle": 731,
+      "pedestrian": 2350,
+      "pickup_truck": 20782,
+      "single_unit_truck": 1244,
+      "work_van": 3323
+    },
+    "val": {
+      "articulated_truck": 394,
+      "bicycle": 176,
+      "bus": 885,
+      "car": 5281,
+      "motorcycle": 30,
+      "motorized_vehicle": 773,
+      "non-motorized_vehicle": 93,
+      "pedestrian": 142,
+      "pickup_truck": 904,
+      "single_unit_truck": 273,
+      "work_van": 237
+    }
+  },
+  "caps": {
+    "test": 300,
+    "val": 100
+  },
+  "checks": {
+    "group_check": {
+      "failures": 0,
+      "highest_similarity_outside_a_group": 0.9912681579589844
+    },
+    "no_overlap_and_class_counts": [],
+    "passed": true,
+    "split_check": {
+      "errors": [],
+      "test groups": 3648,
+      "test to train_pool": {
+        "at_or_above_the_limit": 0,
+        "highest_similarity": 0.9912673830986023
+      },
+      "test to val": {
+        "at_or_above_the_limit": 0,
+        "highest_similarity": 0.9912617206573486
+      },
+      "val groups": 1922,
+      "val to train_pool": {
+        "at_or_above_the_limit": 0,
+        "highest_similarity": 0.9912617206573486
+      }
+    }
+  },
+  "class_minimums": {
+    "test": 100,
+    "val": 30
+  },
+  "embedding": "mean",
+  "group_source": "connected sets of the images that are linked at a cosine similarity at or above the limit; embedding: the mean of the last feature map of the frozen backbone at 224 px",
+  "groups": 12098,
+  "groups_per_split": {
+    "test": 3648,
+    "train_pool": 6528,
+    "val": 1922
+  },
+  "images": {
+    "test": 10000,
+    "train": 8000,
+    "train_pool": 45792,
+    "unused": 50525,
+    "val": 3683
+  },
+  "largest_group_share": 0.19740909090909092,
+  "limit": 0.991268515586853,
+  "model": "Roboflow/rf-detr-base",
+  "neighbour_similarity": {
+    "adjacent_ids": 0.9136362829361527,
+    "random_pairs": 0.9135863062801686
+  },
+  "requested": {
+    "test": 10000,
+    "train": 8000,
+    "val": 2000
+  },
+  "search": {
+    "candidates": [
+      {
+        "groups": 65465,
+        "largest_group_share": 0.050236363636363635,
+        "limit": 0.9967265129089355,
+        "over_linked": null
+      },
+      {
+        "groups": 51906,
+        "largest_group_share": 0.0675,
+        "limit": 0.9960168600082397,
+        "over_linked": null
+      },
+      {
+        "groups": 38965,
+        "largest_group_share": 0.07348181818181818,
+        "limit": 0.9951533675193787,
+        "over_linked": null
+      },
+      {
+        "groups": 27363,
+        "largest_group_share": 0.07554545454545454,
+        "limit": 0.9941026568412781,
+        "over_linked": null
+      },
+      {
+        "groups": 18605,
+        "largest_group_share": 0.09533636363636364,
+        "limit": 0.9928241968154907,
+        "over_linked": null
+      },
+      {
+        "groups": 12098,
+        "largest_group_share": 0.19740909090909092,
+        "limit": 0.991268515586853,
+        "over_linked": null
+      },
+      {
+        "groups": 7142,
+        "largest_group_share": 0.5798909090909091,
+        "limit": 0.989375650882721,
+        "over_linked": "the largest group has 58.0% of the images"
+      }
+    ],
+    "chosen_candidate": 5,
+    "d_near": 0.0032734572887420654,
+    "d_rand": 0.07559001445770264,
+    "max_group_share": 0.2,
+    "neighbours": 100
+  },
+  "seed": 0
+}

@@ -112,7 +112,8 @@ def prepare_embeddings(raw: np.ndarray, centre: bool = False) -> np.ndarray:
     x = np.array(raw, dtype=np.float32)
     if centre:
         x -= x.mean(axis=0, keepdims=True)
-    x /= np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-12)
+    norms = np.sqrt(np.einsum("ij,ij->i", x, x))  # no temporary array of the size of x
+    x /= np.maximum(norms, 1e-12)[:, None]
     return x
 
 

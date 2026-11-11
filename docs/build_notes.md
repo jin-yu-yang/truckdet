@@ -1,7 +1,8 @@
 # Build notes
 
-What the build confirmed, corrected and decided. The design is `docs/design.md`. It was changed one time, after
-the scene check failed (change 1, 2026-11-10: §4.3, §4.5, §7.3 and §11; §9 below).
+What the build confirmed, corrected and decided. The design is `docs/design.md`. It was changed two times. Change 1
+(2026-11-10: §4.3, §4.5, §7.3 and §11; §9 below) came after the scene check failed with k-means. Change 2
+(2026-11-10: §3, §4.3, §4.5, §11 and §12; §13 below) accepts the split of the fourth run.
 Each item gives the section of the design and the place in the code.
 
 Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Roboflow/rf-detr-base`.
@@ -16,8 +17,9 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, second run | MIO-TCD, Colab T4 | The class counts pass with a val split of 5,724 images. **The scene check fails:** the scene groups do not separate the cameras (§8). The split is not accepted |
 | The new split method of design change 1 (§9) | Invented cameras (`scripts/scene_split_simulation.py`), CPU | The search, the split and the two automatic checks work, and the failure signals work |
 | Stage 1, third run: the new split method with the mean embedding | MIO-TCD, Colab T4 | The search and the automatic checks ran on the GPU and passed. **The scene check fails:** the same camera in 71 of 100 pairs (§10). The split is not accepted |
-| Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split is not accepted. Both embeddings have failed: the design asks for a decision |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 148 passed |
+| Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split was not accepted then. Design change 2 accepts it with its scene measurement (§13) |
+| Design change 2: the split of the fourth run is the split of the project (§13) | The split files of the repository, CPU | The seven files have the hashes of the change, and its numbers agree with the files. The report gives the scope of the answer and the new limits |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 154 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -26,8 +28,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | **Not run:** the start model and a training run on MIO-TCD | | Stage `checks` of the notebook |
 
 So stage `checks` of the notebook is the first training run on the GPU, and the first run of the
-model on MIO-TCD images. It does not start before there is an accepted split. Three splits failed
-the scene check (§8, §10, §12), and the next step is a decision (§12).
+model on MIO-TCD images. The split is accepted now (§13). The label completeness decision (§8) is
+still open, and it comes before the first training run.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -607,7 +609,8 @@ recommends this), or stop. No other limit and no third embedding was tried, as t
 The 12 largest groups have 49% of the images (12,603; 8,477; 5,205; 4,790; 3,563; ...). In the test
 split, 22 groups over the cap give 6,600 of its 10,001 images, and groups of one image give 757.
 
-**Open, with the decision: the unit of the bootstrap.** Design §7.3 resamples the scene groups of the
+**Open, with the decision: the unit of the bootstrap** (closed by design change 2, §13: the split of
+this run is accepted, so the unit is its scene group). Design §7.3 resamples the scene groups of the
 split. A random image split has no scene groups of its own, and `runs.split_groups` stops if
 `scene_groups.csv` is not there. The design does not say what the unit is in that case. Nothing is
 built for this yet. The numbers for the decision:
@@ -621,4 +624,80 @@ built for this yet. The numbers for the decision:
   test split of this run (the caps make the groups more equal). So the intervals of a group
   bootstrap will be much wider than those of an image bootstrap in both cases.
 
-The split files of this run are in `splits/rejected_links_grid/`, as a record.
+The split files of this run were in `splits/rejected_links_grid/`, as a record. Design change 2
+accepts this split, and the files are in `splits/` now (§13).
+
+## 13. Design change 2: the split of the fourth run is the split of the project
+
+Three splits failed the scene check (§8, §10, §12), and the design asked for a decision. The
+decision is design change 2 (2026-11-10): the split of the fourth run is accepted with no change,
+the scene check becomes a measurement, and the answer is for test images that have no near image in
+the training data. It is not an answer for new cameras. The change is merged into `docs/design.md`
+(§3, §4.3 "The accepted split", §4.5, §11, §12), as change 1 was. The predictions (§2), the arms,
+the training, the metrics, the two automatic checks and the bootstrap of scene groups stay.
+
+**Why the methods failed.** At one limit, one group holds many cameras, and one camera is in many
+groups. So two frames of one camera can be farther apart than frames of two cameras, and no limit
+separates them. The invented cameras of the simulation have a gap between the two cases. The real
+cameras do not.
+
+**Why not a random image split.** Change 1 recommended it for this case, and so did §12 of these
+notes. That was wrong. A random split discards the separation that the fourth run has: its test
+images have near copies in the training data (a similarity of 1.0000 in the pairs of the sheets),
+and the fourth-run split has none at or above 0.7214.
+
+**Checked before the build.** Each number of the change agrees with the committed files:
+
+| | In the change | From the files |
+|---|---|---|
+| The first 16 characters of the SHA-256 of the seven files | a table | equal for all seven |
+| Scene groups of the train subset | 291 | 291 |
+| Images from groups with fewer than 100 images: dataset, train subset, test, val | 6.4%, 5.1%, 23.2%, 65.3% | equal |
+| Images from groups with 1,000 images or more | 74.2%, 78.4%, 33.0%, 19.8% | equal |
+| Test groups at the cap of 300, and their images | 22 groups, 6,600 of 10,001 | equal |
+| The interval of 60 of 100 | about 50% to 69% | 50.2% to 69.1% (Wilson, 95%) |
+| Candidates of `test_seen` (the extension) | 58,108 in 186 groups | equal |
+| `test_seen` with the cap of 300, before the removal of near copies | 12,152 images, 28 groups at the cap | equal |
+
+**What is built.**
+
+| Change | Where |
+|---|---|
+| The seven files of the fourth run are in `splits/`, with no change | Moved from `splits/rejected_links_grid/`; `tests/test_splits.py` checks the hashes and the counts |
+| The counts of the person | `splits/scene_measurement.json`: the scene pairs (60 of 100, with the count of each sheet), the largest group (5 cameras in 50 images), the random image split (50 of 50) |
+| The scope of the answer, in the first screen of the report | `report._scope`: one paragraph before "How to read the numbers" |
+| The limits of the change, in the place of the two that go | `report.render`, "Limits"; the count has its interval there |
+| The composition table | `report.split_composition` calculates it from `scene_groups.csv` and the split lists; `report._composition_limits` writes it |
+| The words of the change in the messages | `scripts/make_split.py` ("[measure] scene measurement"), the notebook, `scripts/scene_split_simulation.py` (docstring) |
+| The status, the split bullets and the limits | `README.md`, `splits/README.md` |
+| The extension `test_seen` | Design §12, as text. Not built: it comes after the main result |
+
+`scenes.py`, `stats.py`, `runs.py`, the training and the evaluation have no change.
+
+**Decisions inside the change.** Please read these: the first two go past "no change to the logic".
+
+1. **The stages after `data` read the split from the repository.** The notebook gave the Drive folder
+   to each script (`--splits-dir`). Two things made that wrong for an accepted split. The report
+   reads `scene_measurement.json` from the splits folder, and that file is in the repository only.
+   And a new run of stage `data` writes to the Drive folder: with the old default (`EMBEDDING =
+   "mean"`) it would put the rejected split of the third run there, and the next stage would train
+   on it. Now `SPLITS` is `splits/` of the clone, stage `data` writes to `SPLIT_RUN` on Drive, and
+   its closing text says if the files of the run are equal to the accepted split.
+2. **`EMBEDDING` is `"grid"` by default** in the notebook: it is the embedding of the accepted split.
+3. **`make_split.py --splits-dir` has no default.** The default was `splits`, which is the accepted
+   split now. A run with no folder would write over it.
+4. **Two limits are joined to limits of the change.** "The caps change the weight of the cameras" is
+   in "The splits do not have the composition of the dataset" (with "group" for "camera": a group
+   is not a camera). "The 20% rule is a choice" is in "The limit is the result of one rule".
+5. **The numbers of the limits come from the files.** The report calculates the table and the groups
+   at the cap, and reads the count and the limit. It writes them only if the files are there; with
+   no measurement file it makes no claim about a count.
+6. **The interval of the count** is the 95% Wilson interval, calculated in the report.
+7. **The change document is not in `docs/`.** Its content is in `docs/design.md`, as for change 1.
+
+**What was run.** The tests (154 passed). The report text for the accepted split, with invented
+results, to read the first screen and the limits. No stage of the notebook ran again: the split is
+the one of §12, and the next stage is `checks`.
+
+**Open.** The label completeness decision of §8 (2.0% for clear objects, about 10.5% by best guess,
+against the limit of 5%). It comes before the first training run.

@@ -3,6 +3,10 @@
 This is NOT evidence about MIO-TCD. The camera model below is invented. The test shows that the
 mechanics of the procedure work, and that its failure signals work. It cannot show that the cameras
 of MIO-TCD are separable in the real embedding: only the scene check on the real images shows that.
+On MIO-TCD the scene check then showed that they are not separable: the invented cameras have a gap
+between two frames of one camera and frames of two cameras, and the real cameras do not (design §4.3,
+"The accepted split"). The scene check was a pass rule when this test was written, and the test keeps
+it as one (5% of the pairs). In the project it is a measurement now.
 
 Camera model: each camera has a centre. A frame of a camera is the centre, plus a time-of-day value
 t in [0, 1] times the camera's light vector, plus noise. A part of the light vector is common to all

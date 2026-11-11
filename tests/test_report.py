@@ -35,6 +35,8 @@ def test_report_end_to_end_and_the_same_on_a_second_run(runs_root, data_root, sp
     # the first screen: the question, the predictions and their outcomes
     head = text[: text.index("## Results")]
     assert report.QUESTION in head and all(p in head for p in report.PREDICTIONS.values())
+    # the scope of the answer is in the first screen too (design §4.3): scene groups are not cameras
+    assert "*The scope of the answer.*" in head and "not an answer for new cameras" in head
     outcomes = [line for line in head.splitlines() if line.startswith(("| P1 |", "| P2 |", "| P3 |"))]
     assert len(outcomes) == 3 and all(any(f"**{w}**" in line for w in ("confirmed", "refuted", "not shown")) for line in outcomes)
     for section in ("## Results", "### Differences in AP", "## Error split: boxes and labels", "### Truck family",
@@ -45,6 +47,10 @@ def test_report_end_to_end_and_the_same_on_a_second_run(runs_root, data_root, sp
     assert "20 paired bootstrap resamples of the 3 scene groups of the split" in text
     assert "*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups:" in text
     assert "With resamples of single images:" in text
+    # the composition of the splits, from the split files: each group of the fixture has 2 images
+    assert "| Share of the images that come from | Dataset | Train subset | Test | Val |" in text
+    assert "| groups with fewer than 100 images | 100.0% | 100.0% | 100.0% | 100.0% |" in text
+    assert "| groups with 1,000 images or more | 0.0% | 0.0% | 0.0% | 0.0% |" in text
     assert "b_lr1e-3_s0, b_lr1e-3_s1" in text and "f_lr1e-4_h1e-3_s0" in text
     numbers = json.loads((out / "numbers.json").read_text())
     assert set(numbers["arms"]) == set("HDBF") and set(numbers["readings"]) == {"P1", "P2", "P3"}
@@ -114,9 +120,63 @@ def test_render_handles_missing_classes_and_shows_the_outcomes():
     assert "| B: LoRA in the backbone | 2,048,210 | 0.561 [" in text and "1 (by definition)" in text
     assert "| bicycle | – |" in text and "10,000 images" in text and "![Recovered share" in text
     assert "resamples of the scene groups of the split" in text and "The unit of the bootstrap" not in text
-    assert "linked at a cosine similarity of the chosen limit or more" in text and "at most 300 images" in text
+    # no split files: the text has no count and no table, and it does not claim the guarantee of the split check
+    assert "The split keeps the images of one scene group in one split." in text and "at most 300 images" in text
+    assert "no near image in the training data" not in text and "Share of the images that come from" not in text
+    assert "this rule set the chosen limit" in text and "at the cap of" not in text
+    split = {
+        "groups": 41,
+        "split_meta": {"limit": 0.97531, "caps": {"test": 250, "val": 80}, "checks": {"passed": True}},
+        "scene_measurement": {"scene_pairs": {"looked_at": 100, "same_camera_view": 60},
+                              "largest_group": {"images_looked_at": 50, "cameras": 5},
+                              "random_image_split": {"looked_at": 50, "same_camera_view": 50}},
+        "composition": {"images": {"dataset": 110_000, "train": 8_000, "test": 10_000, "val": 2_000},
+                        "small_groups": {"dataset": 0.064, "train": 0.051, "test": 0.232, "val": 0.653},
+                        "large_groups": {"dataset": 0.742, "train": 0.784, "test": 0.330, "val": 0.198},
+                        "at_cap": {"test": {"cap": 250, "groups": 22, "images": 5_500}}},
+    }
     with_split = report.render({**numbers, "image_bootstrap": {"B - D": {"value": 0.12, "low": 0.11, "high": 0.13}}},
-                               {**context, "groups": 41, "split_meta": {"limit": 0.97531, "caps": {"test": 250, "val": 80}}})
+                               {**context, **split})
     assert "resamples of the 41 scene groups of the split" in with_split and "With resamples of single images: +0.120 [+0.110, +0.130]" in with_split
-    assert "linked at a cosine similarity of 0.9753 or more" in with_split and "at most 250 images" in with_split
+    head = with_split[: with_split.index("## Results")]
+    assert ("*The scope of the answer.* The test images have no near image in the training data: no training image has "
+            "a similarity of 0.9753 or more to a test image. The cameras are not separated. For 60 of 100 test images") in head
+    assert "It is not an answer for new cameras." in head
+    limits = with_split[with_split.index("## Limits"):]
+    assert "- **The cameras are not separated.**" in limits and "a 95% interval of 50% to 69% (100 pairs)" in limits
+    assert "It is a lower limit" in limits and "In a random image split the count was 50 of 50." in limits
+    assert "So a confirmed P1 is the weaker result, and a refuted P1 is the stronger result." in limits
+    assert "at most 250 images to the test split and at most 80 to the val split" in limits
+    assert "| groups with fewer than 100 images | 6.4% | 5.1% | 23.2% | 65.3% |" in limits
+    assert "| groups with 1,000 images or more | 74.2% | 78.4% | 33.0% | 19.8% |" in limits
+    assert "- **The val split is different from the test split.** The val cap of 80 is the cause." in limits
+    assert ("- **A few groups give most of the test split.** 22 groups are at the cap of 250 and give 5,500 of the "
+            "10,000 images. One group can hold more than one camera: 50 images of the largest group show 5 cameras.") in limits
+    assert "this rule set 0.9753" in limits
+    # the limits of change 1 that the measurement replaces are gone
+    assert "This is safe for the split" not in with_split and "Two parts of one camera" not in with_split
     assert all(c in text for c in SPECIFIC_CLASSES) and stats.P3_THRESHOLD == pytest.approx(0.6667, abs=1e-4)
+
+
+def test_split_composition_and_the_interval_of_a_count(tmp_path):
+    """Design §11: the share of the images of each split that come from small and from large scene groups."""
+    from truckdet.data.miotcd import write_ids
+
+    # group 0: 1,200 images; group 1: 150; groups 2 to 51: 1 image each
+    group_of = [0] * 1200 + [1] * 150 + list(range(2, 52))
+    ids = [f"{k:08d}" for k in range(len(group_of))]
+    (tmp_path / "scene_groups.csv").write_text("image_id,scene_group\n" + "".join(f"{i},{g}\n" for i, g in zip(ids, group_of)))
+    write_ids(tmp_path / "train.txt", ids[:1000])  # all from the large group
+    write_ids(tmp_path / "test.txt", ids[1000:1010] + ids[1200:1210] + ids[1350:1370])  # 10 large, 10 medium, 20 small
+    write_ids(tmp_path / "val.txt", ids[1370:1380])  # all from groups of one image
+    composition = report.split_composition(tmp_path, {"test": 10, "val": 100})
+    assert composition["images"] == {"dataset": 1400, "train": 1000, "test": 40, "val": 10}
+    assert composition["small_groups"] == pytest.approx({"dataset": 50 / 1400, "train": 0.0, "test": 0.5, "val": 1.0})
+    assert composition["large_groups"] == pytest.approx({"dataset": 1200 / 1400, "train": 1.0, "test": 0.25, "val": 0.0})
+    # two groups give exactly the cap of 10 images to the test split; no group gives 100 to the val split
+    assert composition["at_cap"] == {"test": {"cap": 10, "groups": 2, "images": 20}, "val": {"cap": 100, "groups": 0, "images": 0}}
+    assert report.split_composition(tmp_path)["at_cap"] == {}
+    assert report.split_composition(tmp_path / "missing") is None
+    low, high = report.wilson_interval(60, 100)
+    assert (low, high) == pytest.approx((0.5020, 0.6906), abs=1e-4)
+    assert report.wilson_interval(0, 50)[0] == pytest.approx(0.0, abs=1e-12)

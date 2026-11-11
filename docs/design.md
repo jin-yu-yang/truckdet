@@ -3,6 +3,7 @@
 - **Date:** 2026-11-10
 - **Status:** ready to build.
 - **Changed:** 2026-11-10, change 1: scene groups by links, a split with a cap for each group, and a bootstrap of scene groups (§4.3, §4.5, §7.3, §11). The first method, k-means, failed the scene check on MIO-TCD: `docs/build_notes.md` §8. All other sections are as they were.
+- **Changed:** 2026-11-10, change 2: the split of the fourth run on MIO-TCD (links, the second embedding) is the split of the project. The scene check is a measurement now, not a pass rule. The answer is for test images that have no near image in the training data; it is not an answer for new cameras (§3, §4.3, §4.5, §11, §12). Three splits failed the scene check: `docs/build_notes.md` §8, §10 and §12. The predictions and readings (§2), the arms, the training, the metrics, the two automatic checks and the bootstrap of scene groups (§7.3) are as they were.
 - **Builds on:** the truck project in `~/detr-lora`. See the README sections "After the fourth round" and "Two-stage classification", `detr-lora/results/clip_second_stage.md`, and the code in `detr-lora/src/detr_lora/model/lora.py`, `detr-lora/src/detr_lora/diagnostics.py` and `detr-lora/src/detr_lora/separation.py`.
 - **Home:** a new repository. This file is here because the question comes from this repository's results. Move it when the new repository exists.
 
@@ -51,7 +52,7 @@ There is a reason to expect a large difference. A published YOLOv4 model that wa
 ## 3. Decisions
 
 1. **Dataset:** the labelled part of MIO-TCD localization. The official test images have no public labels, so the project makes its own split.
-2. **Split by scene, not by image** (§4.3). Frames from one camera show the same background. A random split puts the same camera in train and test.
+2. **Split by scene group** (§4.3): images that are near in appearance go to one split. A scene group is not a camera. A random image split puts near copies of the test images in the training data; this split does not.
 3. **`motorized_vehicle`** is a class in training and an ignore region in evaluation (§4.4).
 4. **Model:** `RfDetrForObjectDetection` from `transformers==5.20.1` (the version that the truck project pins), checkpoint `Roboflow/rf-detr-base`.
 5. **Borrowed and written** (§8). The model, its weights and its loss come from the library. The truck project already shows a hand-written matcher and set loss; a second copy for a second detector adds little. The new work is the experiment.
@@ -77,9 +78,9 @@ Convert the CSV to one COCO-format JSON. Read image sizes from the JPEG headers.
 
 ### 4.3 Scene groups and split
 
-The CSV has no camera ID. The project estimates one.
+The CSV has no camera ID. The project groups the images that are near in appearance, and gives each group to one split. A *scene group* is a connected set of images that are linked by appearance. It is not a camera: on MIO-TCD no limit of similarity separates the cameras ("The accepted split", below).
 
-The scene check of §4.5 asks one thing: no test image has a near image in the train pool. The method makes "near images are in one group" true by construction.
+The split has one guarantee: no test image has a near image in the train pool. The method makes "near images are in one group" true by construction.
 
 **Embedding.** One embedding for each labelled image: the mean of the last feature map of the frozen backbone, at 224 px, with unit length. *Similarity* is the cosine similarity, and *distance* is 1 − similarity.
 
@@ -103,7 +104,7 @@ An example, with numbers near those of the first run on MIO-TCD: for a nearest-i
 - A lower limit can only join groups, so the search has one stop point.
 - The lowest limit that is not over-linked has the most links. It gives a camera the smallest chance to be in two groups.
 - If the first candidate is over-linked, there is no limit: go to "If no limit passes".
-- The search needs no work by a person. The scene check of §4.5 stays as it is.
+- The search needs no work by a person. The work of a person is the scene measurement of §4.5.
 
 Record one line for each candidate in `split_meta.json`: the limit, the number of groups, the share of the largest group, and "over-linked" with its cause.
 
@@ -124,13 +125,13 @@ Step 3 is necessary. The lists do not hold all links of an image in a large grou
 5. **Not used:** the images of a test or val group that are over its cap. They are in no split. Write them to `unused.txt`.
 6. **Train subset:** 8,000 random images of the train pool (fixed seed). It is the same for all runs. §10 gives the rule to change this number.
 
-Count images and boxes on the images that a split uses, not on the full groups. With the caps, no camera can dominate a split.
+Count images and boxes on the images that a split uses, not on the full groups. With the caps, no group can dominate a split.
 
 The caps give the minimum number of groups: 34 in the test split (10,000 / 300) and 20 in the val split (2,000 / 100). §7.3 needs these.
 
 The split is *not possible* if the groups end before the val split is complete, or if the train pool has fewer than 8,000 images.
 
-**If no limit passes.** A split fails if the search finds no limit, or if the scene check fails at the chosen limit. Do not try other limits of the same embedding: a higher limit cuts more cameras, and a lower limit is over-linked.
+**If no limit passes.** A split fails if the search finds no limit. Until change 2 a split also failed if the scene check failed at the chosen limit: the scene check was a pass rule then (10 pairs of 200 or fewer with the same camera view). Do not try other limits of the same embedding: a higher limit cuts more cameras, and a lower limit is over-linked.
 
 *Step 1: a second embedding, one time.* It keeps the position of things in the picture.
 
@@ -139,16 +140,64 @@ The split is *not possible* if the groups end before the val split is complete, 
 - Subtract the mean of all images. Give each row unit length.
 - Do the groups, the search, the split and the checks again.
 
-The mean feature tells what is in a picture. The grid also tells where it is. Two cameras on similar roads show the same things in other positions. This embedding is not tested. It is 2.7 GB as float32; float16 is sufficient for storage.
+The mean feature tells what is in a picture. The grid also tells where it is. Two cameras on similar roads show the same things in other positions. It is 2.7 GB as float32; float16 is sufficient for storage. On MIO-TCD the first embedding failed the scene check, so the second was used. It separates the cameras better than the first, but not fully ("The accepted split", below).
 
-*Step 2: Decision needed.* If the second embedding fails, the cameras are not separable with these tools. The alternatives:
-
-- *Continue with a random image split* (recommended). State in the report that the test cameras are also in training, and that the answer is for cameras that the model saw. State that P1 can be to the advantage of arms B and F, which can learn the backgrounds.
-- *Stop*, and report that the dataset gives no split by camera.
+*Step 2: decision (change 2).* Change 1 gave two alternatives for a second embedding that fails the scene check: a random image split, or a stop. They are gone. The split of the second embedding is accepted with its scene measurement: see "The accepted split", below. No third embedding and no other limit is tried.
 
 If the file order or the image IDs show the camera, use that as the group and do not link.
 
 The splits are files of image IDs. Commit them. Do not commit images.
+
+**The accepted split.** Three splits failed the scene check on MIO-TCD (`docs/build_notes.md` §8, §10 and §12):
+
+| Split | Nearest train-pool image shows the same camera | Cameras in 50 images of the largest group |
+|---|---|---|
+| K-means, mean embedding | 125 of 125 pairs | not looked at |
+| Links, mean embedding, limit 0.9913 | 71 of 100, and 2 not clear | 14 |
+| Links, grid embedding, limit 0.7214 (the fourth run) | 60 of 100 | 5 |
+| Random image split | 50 of 50 | |
+
+*No limit separates the cameras.* The looks of the third and fourth runs show two facts at one limit: one group holds many cameras, and one camera is in many groups. So two frames of one camera can be farther apart than frames of two cameras. This is true in the two embeddings. Appearance cannot give a camera split of this dataset. The invented cameras of the test below have a gap between the two cases; the real cameras do not.
+
+*A random image split is not the answer.* Change 1 recommended it for this case. That was wrong: a random split discards the separation that the fourth run has.
+
+| | Random image split | The split of the fourth run |
+|---|---|---|
+| Highest similarity of a test image to a train-pool image | 1.0000 (in the 200 pairs of the sheets) | 0.7212 (all test images) |
+| Mean similarity of a test image to its nearest train-pool image (the 200 pairs of the sheets) | 0.885 | 0.554 |
+| Scene groups in the test split, for the bootstrap | none of its own | 1,096 |
+| A measure of independent units in the test split: the square of the image count, divided by the sum of the squares of the group counts (for the random split, with the groups of the fourth run) | 30 | 46 |
+
+The split of the fourth run is not a camera split. It is the best separation that the project has, and its guarantee is exact: no test image has a near image in the training data.
+
+*Decisions.*
+
+1. The split of the project is the split of the fourth run, with no change. Do not make a split again.
+2. The work on a camera split stops. No third embedding, no other limit. Only camera labels made by a person can give a camera split, and the question of the project does not need one.
+3. The scene check becomes a measurement (§4.5). The count of the fourth run, 60 of 100, goes in the report. It is not a pass rule. The group check and the split check stay pass rules.
+4. The scope of the answer changes (below).
+5. The term "scene group" stays. A scene group is a connected set of images that are linked by appearance. It is not a camera.
+6. The unit of the bootstrap is the scene group of this split (§7.3).
+
+*The split.* The seven files are in `splits/`, as `scripts/make_split.py` wrote them in the fourth run. `splits/scene_measurement.json` has the counts of the person.
+
+| | Images | Scene groups |
+|---|---|---|
+| test | 10,001 | 1,096 |
+| val | 2,017 | 513 |
+| train pool | 67,785 | 1,452 |
+| train subset | 8,000 | 291 |
+| not used | 30,197 | |
+
+- Embedding: grid. Limit: 0.7214082. Caps: 300 (test) and 100 (val). Seed: 0.
+- Group check: 0 failures. Split check: 0 failures. The highest similarity of a test image to a train-pool image is 0.7212.
+- The smallest classes: `motorcycle` 148 and `non-motorized_vehicle` 257 boxes in test; `motorcycle` 45 and `non-motorized_vehicle` 48 in val.
+
+*The scope of the answer.* Use this text, or text with the same content, in the README and the report:
+
+> The test images have no near image in the training data: no training image has a similarity of 0.7214 or more to a test image. The cameras are not separated. For 60 of 100 test images, the nearest training-pool image shows the same camera in other conditions. So the answer is for images that are different from the training images. It is not an answer for new cameras.
+
+The count has an interval of about 50% to 69% (100 pairs). It is a lower limit: a camera can be in the train pool and not be the nearest image.
 
 **The first method, and why it failed.** The first version of this section clustered the embeddings with k-means, k = 1,000, and gave whole clusters to a split. On MIO-TCD it failed the scene check (`docs/build_notes.md` §8):
 
@@ -174,7 +223,7 @@ These facts show two things. The embedding is good at short range: the nearest i
 - A smaller copy of case D (40 cameras, in `tests/test_scripts.py`) shows the second failure signal: the search accepts its first candidate, the two automatic checks pass, and the scene check finds the same camera in 85% of the pairs. The scene check by a person is necessary.
 - The last column is a rule that this design does not use: a person labels 25 pairs in each bin of similarity, and the limit is the similarity below which 1 pair of 25 or fewer shows the same camera. It set the limit too low in three of the four cases.
 
-Not tested: MIO-TCD. The camera model is invented. The test shows that the mechanics and the failure signals work. It does not show that the cameras of MIO-TCD are separable in the real embedding. Only the scene check on the real images shows that.
+Not tested: MIO-TCD. The camera model is invented. The test shows that the mechanics and the failure signals work. It does not show that the cameras of MIO-TCD are separable in the real embedding. Only the scene check on the real images shows that, and it showed that they are not ("The accepted split", above).
 
 ### 4.4 `motorized_vehicle`
 
@@ -197,9 +246,9 @@ The dataset uses this class for vehicles that are too small to identify. The off
   - The test split has 34 groups or more, and the val split has 20 or more.
 
   The first two lines follow from the group check. They are a guard for the split code.
-- **Scene check (a person):** for 200 random test images, find the nearest train-pool image by cosine similarity. Look at the 200 pairs. Accept the split if 10 pairs or fewer show the same camera view. Do the same count for a random image split, for the report. After the split check, each of these pairs has a similarity below the limit. The person now answers one question: is the limit low enough?
+- **Scene measurement (a person):** for 200 random test images, find the nearest train-pool image by cosine similarity. Look at the pairs, and count the pairs that show the same camera view. Record the count. It goes in the report. Do the same count for a random image split, for the report. After the split check, each of these pairs has a similarity below the limit, so the count tells how many test images have their camera in the train pool at a lower similarity. This was a pass rule until change 2 ("the scene check": 10 pairs of 200 or fewer), and three splits failed it. It is a measurement now (§4.3, "The accepted split"): for the accepted split, 60 of 100 pairs show the same camera view.
 
-The group check, the split check and the scene check come in this order.
+The group check, the split check and the scene measurement come in this order. The group check and the split check are pass rules.
 
 ## 5. Model and arms
 
@@ -360,11 +409,19 @@ Each stage ends with a check. Do not start a stage before the check of the stage
 - **Incomplete labels.** The dataset describes its boxes as foreground objects. Parked vehicles possibly have no box. The label check of §4.5 measures this before any training.
 - **A small difference between H and F.** The gate stops the project early.
 - **F is not fully tuned.** With no weight averaging and no layer-wise decay, AP_F is possibly low. Then R_B is too high. The learning-rate choice decreases this risk; the report must state it.
-- **Scene groups are an estimate.** Some cameras are possibly in two splits. The scene check gives the rate.
-- **A group can hold more than one camera.** The lowest limit joins similar cameras. This is safe for the split, and it makes the groups fewer and larger.
-- **Two parts of one camera can stay in two groups** if no chain of near frames joins them (for example day and night). The scene check finds this only when the two parts are nearer than all other cameras.
-- **The caps change the weight of the cameras.** A camera with many frames has no more weight in the test split than a camera with 300. The train subset keeps the natural weights.
-- **The 20% rule is a choice.** No camera is expected to have 20% of the images. If the largest group at the chosen limit is near 20%, look at 50 of its images before you accept it.
+- **The cameras are not separated.** The test images have no near image in the training data: no training image has a similarity of 0.7214 or more to a test image. For 60 of 100 test images, the nearest training-pool image shows the same camera in other conditions. The count has an interval of about 50% to 69%, and it is a lower limit: a camera can be in the train pool and not be the nearest image. So the answer is for images that are different from the training images. It is not an answer for new cameras.
+- **The test images were selected with the features of the frozen backbone.** They are far from the training images in those features. Arms H and D keep these features; arms B and F change them. This is possibly to the advantage of B and F.
+- **Two limits go in the same direction.** The shared cameras and the selection are both possibly to the advantage of the backbone arms. So a confirmed P1 is the weaker result, and a refuted P1 is the stronger result. The rank limit of §5.3 goes in the opposite direction.
+- **The splits do not have the composition of the dataset.** The cause is the caps and the sizes of the groups. A group with many images has no more weight in the test split than a group with 300. The train subset keeps the weights of the train pool.
+
+  | Share of the images that come from | Dataset | Train subset | Test | Val |
+  |---|---|---|---|---|
+  | groups with fewer than 100 images | 6.4% | 5.1% | 23.2% | 65.3% |
+  | groups with 1,000 images or more | 74.2% | 78.4% | 33.0% | 19.8% |
+
+- **The val split is different from the test split.** The val cap of 100 is the cause. The learning-rate choice and the gate use the val split.
+- **A few groups give most of the test split.** 22 groups are at the cap of 300 and give 6,600 of the 10,001 images. One group can hold more than one camera: 50 images of the largest group show 5 cameras.
+- **The limit is the result of one rule.** The search stops when the largest group has more than 20% of the images, and this rule set 0.7214. The 20% is a choice. No other limit was tried.
 - **One model and one dataset.** The answer is for RF-DETR-base on traffic-camera images. It is not a general law.
 - **The library port.** Numbers can be different from those of the original `rfdetr` package.
 - **Memory.** Training uses 3,900 queries. Stage 0 sets the batch size.
@@ -380,3 +437,15 @@ Extensions, after the main result and in this order:
 2. **Arm BD:** half of the budget in each position.
 3. **Early and late backbone layers** at an equal budget (layers 0–4 against 5–10).
 4. **Data size:** arms H, B and F with 1,000 and 32,000 training images.
+
+**One more extension: a second test set of seen groups, `test_seen`.** It is optional, and it has no place in the order above. Build it after the main result. It needs no new training, and it does not change the train subset. P1, P2 and P3 are read on the test split only.
+
+- *The question.* Does the difference between the arms change when the test images are near the training images?
+- *Candidates.* The train-pool images that are not in the train subset, in a scene group with one training image or more. There are 58,108 in 186 groups.
+- *Remove near copies.* A candidate goes if a training image has a similarity to it at or above 0.8980. This is the first candidate limit of the search: the median similarity of an image to its nearest image.
+- *Cap.* A group gives at most 300 images, drawn at random (fixed seed), as in the test split. Before the removal of near copies this gives 12,152 images, with 28 groups at the cap.
+- *File.* Write the list to `splits/test_seen.txt`. Do not use the set for a choice.
+- *One count by a person.* For 50 random images of the set, look at the nearest training image. Count the pairs that show the same moment: the same vehicles in the same positions. Record the count in the report.
+- *Scoring.* Each final checkpoint, one time. The bootstrap resamples the scene groups of `test_seen`. Its groups and the groups of the test split are different groups, so resample the two sets independently.
+- *Readings, fixed now.* Report AP_B − AP_D on `test_seen`, with its interval. Calculate the change: (AP_B − AP_D on `test_seen`) − (AP_B − AP_D on test). "The difference between the arms depends on nearness" if the interval of the change does not include zero. If not, "not shown".
+- *A limit.* The two sets also have different compositions. `test_seen` comes from groups with training images, and most of them are large. A change between the sets can come from the composition and not from nearness.

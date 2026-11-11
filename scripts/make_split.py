@@ -1,7 +1,7 @@
 """Stage 1, part 2: scene groups and the split files (design §4.3), with the checks of §4.5.
 
-    python scripts/make_split.py --data-root /content/data/MIO-TCD-Localization --splits-dir splits \\
-        --sheets-dir /content/checks
+    python scripts/make_split.py --data-root /content/data/MIO-TCD-Localization --splits-dir /content/splits \\
+        --embedding grid --sheets-dir /content/checks
 
 A scene group is a connected set of images that are linked at or above a similarity limit, and an automatic
 search sets the limit. A group gives at most 300 images to the test split and at most 100 to the val split.
@@ -10,15 +10,19 @@ The script prints one line for each limit that the search tries, then the split 
 - no overlap and class counts;
 - the group check: no image has an image outside its group at or above the limit;
 - the split check: no test or val image has a train-pool image at or above the limit;
-- the scene check, which needs eyes: for 200 random test images the sheets show the nearest train-pool image.
-  Accept the split if 10 pairs or fewer show the same camera view. Do the same count on the sheets of the
-  random image split, for the report.
+- the scene measurement, which needs eyes: for 200 random test images the sheets show the nearest train-pool
+  image. Count the pairs that show the same camera view, and record the count. It goes in the report. It is a
+  measurement, not a pass rule (design §4.5). Do the same count on the sheets of the random image split.
 
-Writes splits/{test,val,train_pool,train,unused}.txt, scene_groups.csv and split_meta.json. Commit them.
+Writes {test,val,train_pool,train,unused}.txt, scene_groups.csv and split_meta.json to --splits-dir.
+
+The split of the project is in the repository's splits/ folder. It is the output of this script on MIO-TCD
+with --embedding grid, accepted with its scene measurement (design §4.3, "The accepted split"). Do not make
+that split again: --splits-dir has no default, so give it another folder.
 
 Exit code 3: a check failed, or the search found no limit. With no limit there is no split: the old split
 lists are removed, and split_meta.json has the record of the search. Then run the second embedding one
-time (--embedding grid). If that fails too, a decision is needed (design §4.3).
+time (--embedding grid). The design has no step after the second embedding (§4.3).
 """
 
 import argparse
@@ -45,10 +49,12 @@ EMBEDDINGS = {
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-root", required=True, type=Path)
-    parser.add_argument("--splits-dir", type=Path, default=Path("splits"))
-    parser.add_argument("--sheets-dir", type=Path, help="where the scene-check sheets go (not into the repository)")
+    parser.add_argument("--splits-dir", required=True, type=Path,
+                        help="where the split files go. Not the repository's splits/: that is the accepted split")
+    parser.add_argument("--sheets-dir", type=Path,
+                        help="where the sheets of the scene measurement go (not into the repository)")
     parser.add_argument("--embedding", choices=sorted(EMBEDDINGS), default="mean",
-                        help="grid: the second embedding, one time, if the first gives no limit or fails the scene check")
+                        help="grid: the second embedding of design §4.3. The accepted split of the project uses it")
     parser.add_argument("--embeddings", type=Path, help="cache of the embeddings (default <data-root>/embeddings.npy, "
                                                         "or embeddings_grid.npy for --embedding grid)")
     parser.add_argument("--groups-csv", type=Path,
@@ -146,7 +152,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"[scenes] removed the split files of an earlier run from {args.splits_dir}: {', '.join(removed)}")
             print("[check] next (design §4.3, \"If no limit passes\"): " + (
                 "run the second embedding one time: --embedding grid." if args.embedding == "mean" else
-                "the second embedding failed too. A decision is needed: continue with a random image split, or stop."))
+                "the second embedding gave no limit too. The design has no third embedding and no other limit, so "
+                "this method gives no split for these images."))
             raise SystemExit(CHECK_FAILED)
         limit, groups, splits = chosen["limit"], chosen["groups"], chosen["split"]
         meta["limit"] = limit
@@ -202,17 +209,18 @@ def main(argv: list[str] | None = None) -> None:
             pairs = scenes.scene_check_pairs(unit, split, args.pairs, args.seed)
             sheets = pair_sheets([(ids[a], ids[b], s) for a, b, s in pairs], image_dir, args.sheets_dir, prefix)
             values = [s for _, _, s in pairs]
-            print(f"[check] scene check, {prefix}: {len(pairs)} pairs on {len(sheets)} sheets ({args.sheets_dir}/"
+            print(f"[measure] scene measurement, {prefix}: {len(pairs)} pairs on {len(sheets)} sheets ({args.sheets_dir}/"
                   f"{prefix}_*.jpg), mean similarity {np.mean(values):.3f}, highest {np.max(values):.4f}. Count the "
                   "pairs that show the same camera view.")
-        print("[check] accept the scene split if 10 pairs or fewer show the same camera view."
-              + (f" Each pair of the scene split is below the limit {limit:.4f}: the question is if the limit is low enough."
-                 if limit is not None else ""))
+        print("[measure] record the two counts. They go in the report. The count is a measurement, not a pass rule "
+              "(design §4.5): a scene group is not a camera."
+              + (f" Each pair of the scene split is below the limit {limit:.4f}, so its count tells how many test images "
+                 "have their camera in the train pool at a lower similarity." if limit is not None else ""))
         members = np.flatnonzero(groups == int(sizes.argmax()))
         picks = np.sort(np.random.default_rng(args.seed).choice(members, size=min(50, len(members)), replace=False))
         sheet = group_sheet(ids[picks].tolist(), image_dir, args.sheets_dir / "largest_group.jpg")
-        print(f"[check] the largest group ({largest:.1%} of the images): {len(picks)} of its images are on {sheet}. If the "
-              f"share is near {scenes.MAX_GROUP_SHARE:.0%}, look at them before you accept the split.")
+        print(f"[measure] the largest group ({largest:.1%} of the images): {len(picks)} of its images are on {sheet}. "
+              "Count the cameras that they show, for the report.")
 
     meta.update(groups=int(len(sizes)), largest_group_share=largest, groups_per_split=groups_in,
                 images={name: int(len(positions)) for name, positions in splits.items()}, boxes_per_class=counts,

@@ -1,0 +1,27 @@
+{
+  "what": "Counts by a person on the sheets of stage 1, for the accepted split. A measurement for the report, not a pass rule (docs/design.md, sections 4.3 and 4.5). split_meta.json is as scripts/make_split.py wrote it; this file holds what a person counted.",
+  "date": "2026-11-10",
+  "scene_pairs": {
+    "what": "A test image and its nearest train-pool image: 4 of the 8 sheets of the accepted split (docs/build_notes.md, section 12)",
+    "looked_at": 100,
+    "same_camera_view": 60,
+    "different_camera_views": 40,
+    "sheets": {
+      "scene_split_01.jpg": {"same_camera_view": 14, "different_camera_views": 11},
+      "scene_split_02.jpg": {"same_camera_view": 13, "different_camera_views": 12},
+      "scene_split_03.jpg": {"same_camera_view": 17, "different_camera_views": 8},
+      "scene_split_04.jpg": {"same_camera_view": 16, "different_camera_views": 9}
+    }
+  },
+  "largest_group": {
+    "what": "50 random images of the largest scene group (12,603 images), on largest_group.jpg",
+    "images_looked_at": 50,
+    "cameras": 5,
+    "images_of_each_camera": [26, 10, 9, 4, 1]
+  },
+  "random_image_split": {
+    "what": "A test image and its nearest train-pool image in a random image split: 2 sheets of the third run, mean embedding (docs/build_notes.md, section 10)",
+    "looked_at": 50,
+    "same_camera_view": 50
+  }
+}

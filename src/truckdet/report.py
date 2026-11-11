@@ -7,10 +7,16 @@ An arm's number is the mean of its seeds. An interval is the 95% range of 400 pa
 resamples of the scene groups of the split (design §7.3): in each resample all arms and seeds are
 scored on the same images, and the seeds of an arm are averaged. The interval of AP_B - AP_D from
 resamples of single images is shown next to it, one time.
+
+The report also states the scope of the answer (design §4.3, "The accepted split"): the test images have
+no near image in the training data, and the cameras are not separated. The count of a person for that is in
+`scene_measurement.json` of the splits folder, and the composition of the splits comes from the split files.
 """
 
 import hashlib
 import json
+import math
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,18 +24,26 @@ import numpy as np
 
 from . import stats
 from .config import ARMS
-from .data.miotcd import CLASSES, IGNORE_UNDER, MOTORIZED_VEHICLE, SPECIFIC_CLASSES, TRUCK_FAMILY
+from .data.miotcd import CLASSES, IGNORE_UNDER, MOTORIZED_VEHICLE, SPECIFIC_CLASSES, TRUCK_FAMILY, read_ids
+from .data.scenes import read_groups
 from .errors import NOT_LOCALIZED_NAME, bootstrap_error_split, box_table, confusion_counts, error_split
 from .evaluation import (
     check_same_images, load_predictions, metric_names, metric_vector, primary_matches, score_predictions,
 )
 from .plotting import recovered_share_figure
 from .reporting import write_json
-from .runs import GATE, SEEDS, file_sha256, final_runs, gate_text, read_selection, split_groups, split_ground_truth
+from .runs import (
+    GATE, SCENE_GROUPS, SEEDS, file_sha256, final_runs, gate_text, read_selection, split_groups, split_ground_truth,
+)
 
 # Bump when the analysis code changes what it calculates: the cache key covers files, not code.
 ANALYSIS_VERSION = "2"
 ERROR_SETS = {"specific classes": SPECIFIC_CLASSES, "truck family": TRUCK_FAMILY}
+# The counts of a person on the sheets of stage 1 (design §4.5): a measurement, not a pass rule.
+SCENE_MEASUREMENT = "scene_measurement.json"
+# The two rows of the composition table (design §11): images from small groups and from large groups.
+SMALL_GROUP, LARGE_GROUP = 100, 1000
+COMPOSITION_PARTS = {"dataset": "Dataset", "train": "Train subset", "test": "Test", "val": "Val"}
 ARM_LABELS = {"H": "H: heads only", "D": "D: LoRA in the decoder", "B": "B: LoRA in the backbone",
               "F": "F: full fine-tuning"}
 
@@ -202,6 +216,44 @@ def _ci(e: dict, signed: bool = False) -> str:
     return f"{_f(e['value'], signed)} [{_f(e['low'], signed)}, {_f(e['high'], signed)}]"
 
 
+def wilson_interval(k: int, n: int, z: float = 1.959964) -> tuple[float, float]:
+    """The 95% Wilson interval of the share k / n."""
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return centre - half, centre + half
+
+
+def split_composition(splits_dir, caps: dict | None = None) -> dict | None:
+    """Where the images of the dataset, the train subset, the test split and the val split come from, by the
+    size of their scene group in the dataset (design §11). The caps and the sizes of the groups change the
+    composition of the test split and the val split. `caps`: split -> images that one group gives to it; with
+    them, the groups at the cap are counted. None if the folder has no `scene_groups.csv`."""
+    folder = Path(splits_dir)
+    if not (folder / SCENE_GROUPS).exists():
+        return None
+    group = read_groups(folder / SCENE_GROUPS)
+    size = Counter(group.values())
+    parts = {"dataset": list(group)}
+    parts.update({name: read_ids(folder / f"{name}.txt") for name in ("train", "test", "val")
+                  if (folder / f"{name}.txt").exists()})
+
+    def share(ids: list[str], keep) -> float:
+        return sum(1 for i in ids if keep(size[group[i]])) / len(ids) if ids else float("nan")
+
+    out = {
+        "images": {name: len(ids) for name, ids in parts.items()},
+        "small_groups": {name: share(ids, lambda s: s < SMALL_GROUP) for name, ids in parts.items()},
+        "large_groups": {name: share(ids, lambda s: s >= LARGE_GROUP) for name, ids in parts.items()},
+        "at_cap": {},
+    }
+    for name, cap in (caps or {}).items():
+        if name in parts and cap:
+            full = [c for c in Counter(group[i] for i in parts[name]).values() if c == cap]
+            out["at_cap"][name] = {"cap": int(cap), "groups": len(full), "images": int(sum(full))}
+    return out
+
+
 def _limit(x: float | None) -> str:
     return "the chosen limit" if x is None else f"{x:.4f}"
 
@@ -217,10 +269,69 @@ def _pct_ci(e: dict, signed: bool = False) -> str:
     return f"{100 * e['value']:{sign}.1f}% [{100 * e['low']:{sign}.1f}, {100 * e['high']:{sign}.1f}]"
 
 
+def _scope(split_meta: dict, measurement: dict) -> tuple[str, str]:
+    """The scope of the answer (design §4.3): one line for the first screen, and the text of the limit."""
+    limit = split_meta.get("limit")
+    guarantee = ("The test images have no near image in the training data: no training image has a similarity of "
+                 f"{limit:.4f} or more to a test image." if limit is not None and (split_meta.get("checks") or {}).get("passed")
+                 else "The split keeps the images of one scene group in one split.")
+    pairs = measurement.get("scene_pairs") or {}
+    k, n = pairs.get("same_camera_view"), pairs.get("looked_at")
+    if not n:
+        line = (f"{guarantee} A scene group is a set of images that are linked by appearance. It is not a camera, so the "
+                "answer is not an answer for new cameras.")
+        return line, line
+    count = (f"For {k} of {n} test images that a person looked at, the nearest training-pool image shows the same "
+             "camera in other conditions.")
+    answer = ("So the answer is for images that are different from the training images. It is not an answer for new "
+              "cameras.")
+    low, high = wilson_interval(k, n)
+    detail = (f"The count has a 95% interval of {100 * low:.0f}% to {100 * high:.0f}% ({n} pairs). It is a lower limit: "
+              "a camera can be in the train pool and not be the nearest image.")
+    random_split = measurement.get("random_image_split") or {}
+    if random_split.get("looked_at"):
+        detail += (f" In a random image split the count was {random_split['same_camera_view']} of "
+                   f"{random_split['looked_at']}.")
+    return (f"{guarantee} The cameras are not separated. {count} {answer}",
+            f"{guarantee} {count} {detail} {answer}")
+
+
+def _composition_limits(composition: dict | None, caps: dict, measurement: dict) -> list[str]:
+    """The limits that come from the caps and the sizes of the scene groups (design §11)."""
+    test_cap, val_cap = caps.get("test", 300), caps.get("val", 100)
+    lines = ["- **The splits do not have the composition of the dataset.** The cause is the caps and the sizes of the "
+             f"scene groups. A group gives at most {test_cap} images to the test split and at most {val_cap} to the val "
+             "split, so a group with many images has no more weight in the test split than a group at the cap. The "
+             "train subset keeps the weights of the train pool."]
+    if composition:
+        parts = [p for p in COMPOSITION_PARTS if p in composition["images"]]
+        lines += ["", "  | Share of the images that come from | " + " | ".join(COMPOSITION_PARTS[p] for p in parts) + " |",
+                  "  |---|" + "---|" * len(parts)]
+        for key, label in (("small_groups", f"groups with fewer than {SMALL_GROUP:,} images"),
+                           ("large_groups", f"groups with {LARGE_GROUP:,} images or more")):
+            lines.append(f"  | {label} | " + " | ".join(_pct(composition[key][p]) for p in parts) + " |")
+        lines.append("")
+    lines.append(f"- **The val split is different from the test split.** The val cap of {val_cap} is the cause. The "
+                 "learning-rate choice and the gate use the val split.")
+    at_cap = ((composition or {}).get("at_cap") or {}).get("test")
+    if at_cap and at_cap["groups"]:
+        total = composition["images"]["test"]
+        title = ("A few groups give most of the test split" if 2 * at_cap["images"] > total
+                 else "Some groups are at the cap of the test split")
+        largest = measurement.get("largest_group") or {}
+        cameras = (f": {largest['images_looked_at']} images of the largest group show {largest['cameras']} cameras"
+                   if largest.get("images_looked_at") else "")
+        lines.append(f"- **{title}.** {at_cap['groups']} groups are at the cap of {at_cap['cap']} and give "
+                     f"{at_cap['images']:,} of the {total:,} images. One group can hold more than one camera{cameras}.")
+    return lines
+
+
 def render(numbers: dict, context: dict) -> str:
     """The report as markdown. `context`: images, groups (scene groups of the split), seeds, n_boot, split,
-    trainable (arm -> parameters), selection, gate, figure (file name or None), samples (file names), and
-    split_meta (`split_meta.json`: the limit and the caps of the scene groups)."""
+    trainable (arm -> parameters), selection, gate, figure (file name or None), samples (file names),
+    split_meta (`split_meta.json`: the limit, the caps and the automatic checks of the scene groups),
+    scene_measurement (`scene_measurement.json`: the counts of a person) and composition
+    (`split_composition`)."""
     arms, readings = numbers["arms"], numbers["readings"]
     b_d = numbers["differences"]["B - D"]
     family = numbers["errors"]["truck family"]["B - D"]
@@ -228,6 +339,7 @@ def render(numbers: dict, context: dict) -> str:
     n_seeds = len(context["seeds"])
     split_meta = context.get("split_meta") or {}
     of_groups = f"the {context['groups']:,} scene groups" if context.get("groups") else "the scene groups"
+    scope, scope_limits = _scope(split_meta, context.get("scene_measurement") or {})
     lines = [
         "# LoRA position in RF-DETR: backbone against decoder, on MIO-TCD — results", "",
         f"**Question.** {QUESTION}", "",
@@ -241,6 +353,7 @@ def render(numbers: dict, context: dict) -> str:
         f"| P3 | {PREDICTIONS['P3']} | **{readings['P3']}** | Recovered share of B = {_ci(r_b)}; the line is "
         f"{stats.P3_THRESHOLD:.3f} |", "",
         f"Recovered share of an arm X: (AP_X − AP_H) / (AP_F − AP_H). Decoder: {_ci(r_d)}. Backbone: {_ci(r_b)}.", "",
+        f"*The scope of the answer.* {scope}", "",
         f"*How to read the numbers.* {context['split'].capitalize()} split, {context['images']:,} images. A number of "
         f"an arm is the mean of {n_seeds} seeds ({', '.join(map(str, context['seeds']))}). An interval is the 2.5% to "
         f"97.5% range of {context['n_boot']} paired bootstrap resamples of {of_groups} of the split: frames of one "
@@ -363,20 +476,20 @@ def render(numbers: dict, context: dict) -> str:
               "AP_F is low for that reason, the recovered shares are too high.",
               "- **Equal counts are not equal capacity.** Rank 33 is 13% of the full rank of a decoder matrix; rank 9 "
               "is 2% of a backbone matrix. This is to the advantage of the decoder.",
-              "- **Scene groups are an estimate.** A scene group is a connected set of images that are linked at a "
-              f"cosine similarity of {_limit(split_meta.get('limit'))} or more. A group can hold more than one "
-              "camera: the lowest limit joins similar cameras. This is safe for the split, and it makes the groups "
-              "fewer and larger.",
-              "- **Two parts of one camera can stay in two groups** if no chain of near frames joins them (for "
-              "example day and night). The scene check finds this only when the two parts are nearer than all other "
-              "cameras.",
-              f"- **The caps change the weight of the cameras.** A group gives at most {caps.get('test', 300)} images "
-              f"to the test split and at most {caps.get('val', 100)} to the val split. A camera with many frames has "
-              "no more weight in the test split than a camera at the cap. The train subset keeps the natural weights.",
-              "- **The 20% rule is a choice.** The search for the limit stops when the largest group has more than "
-              "20% of the images. No camera is expected to have 20% of the images.",
-              "- **The intervals show the dependence on the test scenes.** They do not show the variance between "
-              f"seeds; the tables give the {n_seeds} seed values and the seed pairs for that.",
+              f"- **The cameras are not separated.** {scope_limits}",
+              "- **The test images were selected with the features of the frozen backbone.** They are far from the "
+              "training images in those features. Arms H and D keep these features; arms B and F change them. This is "
+              "possibly to the advantage of B and F.",
+              "- **Two limits go in the same direction.** The shared cameras and the selection are both possibly to "
+              "the advantage of the backbone arms. So a confirmed P1 is the weaker result, and a refuted P1 is the "
+              "stronger result. The limit of the ranks (\"Equal counts are not equal capacity\") goes in the opposite "
+              "direction.",
+              *_composition_limits(context.get("composition"), caps, context.get("scene_measurement") or {}),
+              f"- **The limit is the result of one rule.** The search for the limit stops when the largest group has "
+              f"more than 20% of the images, and this rule set {_limit(split_meta.get('limit'))}. The 20% is a choice. "
+              "No other limit was tried.",
+              "- **The intervals show the dependence on the scene groups of the test split.** They do not show the "
+              f"variance between seeds; the tables give the {n_seeds} seed values and the seed pairs for that.",
               "- **Not a leaderboard number.** The public MIO-TCD leaderboard uses another split, all the training "
               "data and another protocol. Its numbers and these numbers are not a comparison.",
               "- **The library port.** Numbers can be different from those of the original `rfdetr` package."]
@@ -417,11 +530,14 @@ def analyse(runs_root, data_root, splits_dir, out_dir, split: str = "test", n_bo
     )
     gate_path = runs_root / GATE
     samples_dir = out_dir / "samples"
-    meta_path = Path(splits_dir) / "split_meta.json"
+    meta_path, measurement_path = Path(splits_dir) / "split_meta.json", Path(splits_dir) / SCENE_MEASUREMENT
+    split_meta = json.loads(meta_path.read_text()) if meta_path.exists() else None
     context = {
         "images": len(gt["images"]), "groups": int(len(np.unique(groups))), "seeds": list(seeds), "n_boot": n_boot,
         "split": split, "trainable": trainable,
-        "split_meta": json.loads(meta_path.read_text()) if meta_path.exists() else None,
+        "split_meta": split_meta,
+        "scene_measurement": json.loads(measurement_path.read_text()) if measurement_path.exists() else None,
+        "composition": split_composition(splits_dir, (split_meta or {}).get("caps")),
         "selection": read_selection(runs_root), "gate": json.loads(gate_path.read_text()) if gate_path.exists() else None,
         "figure": figure,
         "samples": sorted(f"samples/{p.name}" for p in samples_dir.glob("*.png")) if samples_dir.exists() else [],

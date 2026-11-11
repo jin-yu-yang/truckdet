@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) ran four times on MIO-TCD: the counts and the class counts pass, but three splits failed the scene check (k-means; then groups by links with the mean embedding; then with the second embedding, the 4 × 4 grid: the same camera in 60 of 100 pairs). The design asks for a decision now: continue with a random image split, or stop (`docs/build_notes.md` §12). There is no accepted split, and no training run yet, so no results yet.
+> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) is finished: the counts and the class counts pass, and the split of the project is in [splits/](splits/README.md). It is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). The label completeness decision is open, and it comes before the first training run. There is no training run yet, so no results yet.
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 
@@ -94,13 +94,18 @@ project stops there.
 - **A learning rate for each arm,** chosen on the validation split.
 - **Three seeds for each arm,** and a paired bootstrap on the scene groups of the
   test split. Frames of one camera are not independent.
-- **A split by scene.** Frames from one camera show the same background. The
-  dataset has no camera ID, so I estimate scene groups from image embeddings
-  and keep each group in one split. A scene group is a connected set of
-  images that are linked at or above a similarity limit, so near images are
-  in one group by construction. An automatic search sets the limit. My first
-  method, k-means, failed the scene check: it cut the frames of one camera
-  into more than one group.
+- **A split by scene group.** The dataset has no camera ID. A scene group is
+  a connected set of images that are linked at or above a similarity limit,
+  and each group is in one split. An automatic search sets the limit. The
+  test images have no near image in the training data: no training image
+  has a similarity of 0.7214 or more to a test image. A random image split
+  cannot give that: its test images have near copies in the training data.
+- **The cameras are not separated.** A scene group is not a camera. For 60
+  of 100 test images, the nearest training-pool image shows the same camera
+  in other conditions. So the answer is for images that are different from
+  the training images. It is not an answer for new cameras. Three methods
+  failed to separate the cameras: at one limit, one group holds many
+  cameras, and one camera is in many groups.
 - **Ignore regions.** The class `motorized_vehicle` marks vehicles that are
   too small to identify. A detection of one of six vehicle classes on such a
   box is not a true positive and not a false positive. The six classes are
@@ -123,11 +128,12 @@ project stops there.
 The experiment runs on a Colab T4 from one notebook,
 [notebooks/colab_train.ipynb](notebooks/colab_train.ipynb). The notebook has one switch, `STAGE`. Each
 stage ends with its check from the design, and the next stage does not start before that check passes.
+Stages `checks` to `report` read the split of the project from `splits/`.
 
 | `STAGE` | What runs | The check |
 |---|---|---|
 | `spike` | Model facts on the real checkpoint; speed and memory of each arm | The parameter counts; the last backbone layer changes no logit |
-| `data` | Download, converter, scene groups, split files | Counts, label completeness, class counts, no overlap, group check, split check, scene check |
+| `data` | Download, converter, scene groups, the split files of the run | Counts, label completeness, class counts, no overlap, group check, split check; the scene measurement is a count for the report |
 | `checks` | The COCO checkpoint with no training; the training loop on 16 images | AP50 of `car` and `bus` above zero; arm F reaches AP50 above 0.9 |
 | `gate` | Learning-rate runs of H and F | The gate |
 | `main` | Learning-rate runs of D and B; seeds 1 and 2 of all arms | No skipped step; the merge check |
@@ -188,10 +194,20 @@ All analysis runs on a CPU from the saved predictions of each run.
 - One model (RF-DETR base) and one dataset. The answer is not a general law.
 - Full fine-tuning uses a simple recipe. If it is under-tuned, the recovered
   share of LoRA is too high.
-- The scene groups are an estimate. A group can hold more than one camera,
-  and two parts of one camera (day and night) can stay in two groups.
-- A scene group gives at most 300 images to the test split, so a camera
-  with many frames has no more weight than a camera with 300.
+- The cameras are not separated. For 60 of 100 test images, the nearest
+  training-pool image shows the same camera (an interval of about 50% to
+  69%; it is a lower limit). The answer is not an answer for new cameras.
+- The test images were selected with the features of the frozen backbone.
+  Arms H and D keep these features; arms B and F change them. This is
+  possibly to the advantage of B and F.
+- These two limits go in the same direction. A confirmed P1 is the weaker
+  result, and a refuted P1 is the stronger result.
+- The splits do not have the composition of the dataset. A scene group
+  gives at most 300 images to the test split and at most 100 to the val
+  split. 22 groups at the cap give 6,600 of the 10,001 test images, and the
+  val split is different from the test split.
+- One rule set the limit of 0.7214: the largest group has at most 20% of
+  the images. No other limit was tried.
 - Equal parameter counts are not equal capacity. Rank 33 is a larger share of
   a decoder matrix than rank 9 is of a backbone matrix.
 

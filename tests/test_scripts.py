@@ -62,11 +62,11 @@ def test_prepare_data_and_make_split(tmp_path, capsys):
     assert meta["search"]["d_near"] < meta["search"]["d_rand"] and meta["class_minimums"] == {"test": 100, "val": 30}
     assert np.load(root / "embeddings.npy").shape == (60, 24)
 
-    # The second embedding, one time; after it a decision is needed.
+    # The second embedding, one time; the design has no step after it.
     with pytest.raises(SystemExit) as done:
         script("make_split").main([*arguments, "--embedding", "grid"])
     out = capsys.readouterr().out
-    assert done.value.code == 3 and "the second embedding failed too. A decision is needed" in out
+    assert done.value.code == 3 and "the second embedding gave no limit too. The design has no third embedding" in out
     grid = np.load(root / "embeddings_grid.npy")
     assert grid.shape == (60, 24 * 16) and grid.dtype == np.float16
     assert json.loads((splits_dir / "split_meta.json").read_text())["embedding"] == "grid"
@@ -100,7 +100,8 @@ def test_make_split_links_the_frames_of_a_camera(tmp_path, capsys, monkeypatch):
     for line in ("[search] nearest image: median similarity", "the lowest that is not over-linked",
                  "[check] no overlap and class counts: passed", "[check] group check: passed: 0 images",
                  "[check] split check: passed: test 2 groups (2 needed), val 2 groups (2 needed)",
-                 "[check] scene check, scene_split: 4 pairs", "[check] scene check, random_split: 4 pairs",
+                 "[measure] scene measurement, scene_split: 4 pairs", "[measure] scene measurement, random_split: 4 pairs",
+                 "The count is a measurement, not a pass rule",
                  "Each pair of the scene split is below the limit", "16 images of these groups are over the cap"):
         assert line in out, line
     assert "OVER-LINKED: the largest group has" in out  # the search went on until two cameras joined

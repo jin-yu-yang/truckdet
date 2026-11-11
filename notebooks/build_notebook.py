@@ -30,9 +30,11 @@ The times of `gate` and `main` are the design's estimate (an F run or a B run 2 
 
 **If Colab disconnects or the session ends,** *Run all* again with the same `STAGE`, also in a later session: the dataset and the caches are on Drive, finished runs train nothing, and the interrupted run resumes from its last finished epoch.
 
-**Three checks need your eyes** (stage `data`): the label completeness sheets, the scene-check sheets, and the counts. The cell prints what to count and the limit. The scene groups come from an automatic search (design §4.3); two automatic checks run before the scene check. A later stage does not start on a split that did not pass them.
+**Three things need your eyes** (stage `data`): the label completeness sheets, the sheets of the scene measurement, and the counts. The cell prints what to count. The scene groups come from an automatic search (design §4.3), with two automatic checks. The count on the scene sheets is a measurement for the report, not a pass rule (design §4.5).
 
-**Output:** `MyDrive/truckdet/results_bundle.zip` (stage `report`), and `MyDrive/truckdet/splits/` (stage `data`; commit these files to the repository as `splits/`).
+**The split of the project is in the repository** (`splits/`). It is the split of the fourth run on MIO-TCD, accepted with its scene measurement (design §4.3). Stages `checks` to `report` read it from there. Stage `data` does not change it: it writes the files of its own run to `MyDrive/truckdet/splits/`.
+
+**Output:** `MyDrive/truckdet/results_bundle.zip` (stage `report`).
 """
 
 SETTINGS = """STAGE = "spike"  # "spike" -> "data" -> "checks" -> "gate" -> "main" -> "report"; then Run all
@@ -43,7 +45,8 @@ DRIVE_ROOT = "/content/drive/MyDrive/truckdet"
 CODE_DIR = "/content/truckdet"
 LOCAL = "/content/data"                 # the extracted dataset: local disk, not Drive (110,000 small files)
 RUNS = f"{DRIVE_ROOT}/runs"             # checkpoints, saved predictions, selection.json, gate.json
-SPLITS = f"{DRIVE_ROOT}/splits"         # the split files (stage "data" writes them; commit them to the repo)
+SPLITS = f"{CODE_DIR}/splits"           # the accepted split of the project: the files of the repository (design §4.3)
+SPLIT_RUN = f"{DRIVE_ROOT}/splits"      # what stage "data" writes: the files of that run, not the split of the project
 CACHE = f"{DRIVE_ROOT}/cache"           # annotations.json, embeddings.npy
 CHECKS = f"{DRIVE_ROOT}/checks"         # sheets to look at; they hold dataset images, so they stay off GitHub
 RESULTS = f"{DRIVE_ROOT}/results"
@@ -53,9 +56,10 @@ RESULTS = f"{DRIVE_ROOT}/results"
 BATCH_SIZE, ACCUM_STEPS = 4, 4
 assert BATCH_SIZE * ACCUM_STEPS == 16, "the design fixes the effective batch at 16 images"
 
-# The embedding of the scene groups (stage "data"). "grid" is the second embedding of design §4.3: use it one
-# time, and only if "mean" gives no limit or its split fails the scene check.
-EMBEDDING = "mean"
+# The embedding of the scene groups (stage "data"). "grid" is the second embedding of design §4.3, and the
+# accepted split of the project uses it. The first embedding, "mean", failed the scene check when that was a
+# pass rule.
+EMBEDDING = "grid"
 assert EMBEDDING in ("mean", "grid")
 
 SEEDS = [0, 1, 2]
@@ -205,7 +209,7 @@ if os.path.exists(f"{CACHE}/annotations.json") and not os.path.exists(f"{DATA_RO
 COMMON = f"--data-root {DATA_ROOT} --splits-dir {SPLITS}"
 """
 
-PREPARE = """# Stage 1. Converter, scene groups, split files, and the checks of design §4.5.
+PREPARE = """# Stage 1. Converter, scene groups, the split files of this run, and the checks of design §4.5.
 if at("data"):
     # The dataset's own evaluation code: confirm the classes that get an ignore region (design §4.4).
     if not glob.glob(f"{LOCAL}/code/**/localization_evaluation.py", recursive=True):
@@ -222,54 +226,57 @@ if at("data"):
 
     # Scene groups: images that are linked at or above a similarity limit; an automatic search sets the limit
     # (design §4.3). Exit code 3: an automatic check failed, or the search found no limit (then there is no split).
+    # The files go to SPLIT_RUN on Drive: they are the record of this run. The split of the project is SPLITS,
+    # the accepted split in the repository. This stage does not change it.
     embeddings = f"{CACHE}/embeddings.npy" if EMBEDDING == "mean" else f"{CACHE}/embeddings_grid.npy"
-    split_failed = run(f"python scripts/make_split.py --data-root {DATA_ROOT} --splits-dir {SPLITS} "
+    split_failed = run(f"python scripts/make_split.py --data-root {DATA_ROOT} --splits-dir {SPLIT_RUN} "
                        f"--embedding {EMBEDDING} --embeddings {embeddings} --sheets-dir {CHECKS}/scenes", allowed=(0, 3))
     run(f"python scripts/spike.py --image-dir {DATA_ROOT}/train --sheet {CHECKS}/coco_detections.jpg")
 
-    with open(f"{SPLITS}/split_meta.json") as f:
-        split_meta = json.load(f)
-    if split_meta.get("limit") is None:
+    with open(f"{SPLIT_RUN}/split_meta.json") as f:
+        run_meta = json.load(f)
+    if run_meta.get("limit") is None:
         if EMBEDDING == "mean":
-            next_step = 'Next (design §4.3, "If no limit passes"): set EMBEDDING = "grid" and Run all, one time.'
+            next_step = 'The accepted split of the project uses the second embedding: set EMBEDDING = "grid".'
         else:
-            next_step = ("The second embedding gave no limit too. A decision is needed (design §4.3): continue with a "
-                         "random image split, or stop.")
-        raise SystemExit('Stage 1 stops: the search found no limit (see "[search]" and "NO LIMIT" above), so there '
-                         "is no split.\\n" + next_step)
-    automatic = 'FAILED (see "[check]" above). Do not go on' if split_failed else "passed"
+            next_step = "The design has no step after the second embedding (§4.3)."
+        raise SystemExit('Stage 1 stops: the search found no limit (see "[search]" and "NO LIMIT" above), so this '
+                         "run made no split.\\n" + next_step)
+    automatic = 'FAILED (see "[check]" above)' if split_failed else "passed"
     counts = ("DIFFERENT from the reference counts (see above): find the cause of each difference" if counts_differ
               else "equal to the reference counts")
-    if EMBEDDING == "mean":
-        if_fails = 'set EMBEDDING = "grid" and Run all, one time (design §4.3)'
-    else:
-        if_fails = ("this was the second embedding, so do not try a third. A decision is needed (design §4.3): "
-                    "continue with a random image split, or stop")
+    names = ("test.txt", "val.txt", "train_pool.txt", "train.txt", "unused.txt", "scene_groups.csv", "split_meta.json")
+    different = [name for name in names if not os.path.exists(f"{SPLIT_RUN}/{name}")
+                 or open(f"{SPLIT_RUN}/{name}", "rb").read() != open(f"{SPLITS}/{name}", "rb").read()]
+    same = ("they are equal to the accepted split" if not different
+            else "these files are different from the accepted split: " + ", ".join(different))
     raise SystemExit(
         "Stage 1 finished. Before you go on:\\n"
         f"1. Counts: {counts}.\\n"
-        f"2. Automatic checks (no overlap, class counts, group check, split check): {automatic}. "
-        f"Limit {split_meta['limit']:.4f}; {split_meta['groups']:,} scene groups; the largest has "
-        f"{split_meta['largest_group_share']:.1%} of the images.\\n"
+        f"2. Automatic checks of this run (no overlap, class counts, group check, split check): {automatic}. "
+        f"Limit {run_meta['limit']:.4f}; {run_meta['groups']:,} scene groups; the largest has "
+        f"{run_meta['largest_group_share']:.1%} of the images.\\n"
         f"3. Label completeness: open {CHECKS}/labels. Count the vehicles and pedestrians that have no box. "
         "If more than 5% have no box, the labels are not complete: record the rate and stop.\\n"
-        f"4. Scene check: open {CHECKS}/scenes. Count the scene_split pairs that show the same camera view; accept "
-        "the split if 10 pairs or fewer do. Each pair is below the limit now: the question is if the limit is low "
-        "enough. Do the same count on the random_split sheets, for the report. If the scene check fails, do not try "
-        f"other limits: {if_fails}.\\n"
-        f"5. Look at {CHECKS}/scenes/largest_group.jpg: 50 images of the largest scene group. If its share is near "
-        "20%, look at them before you accept the split.\\n"
-        f"6. Look at {CHECKS}/coco_detections.jpg: the COCO checkpoint's detections on 20 images.\\n"
-        f"7. Download {SPLITS} and commit its files to the repository as splits/ (code and split lists only; no images).\\n"
+        f"4. Scene measurement: open {CHECKS}/scenes. Count the scene_split pairs that show the same camera view, "
+        "and record the count. It goes in the report. It is a measurement, not a pass rule (design §4.5). Do the "
+        "same count on the random_split sheets, and count the cameras on largest_group.jpg (50 images of the "
+        "largest scene group).\\n"
+        f"5. Look at {CHECKS}/coco_detections.jpg: the COCO checkpoint's detections on 20 images.\\n"
+        "6. The split of the project is the accepted split in the repository's splits/ folder (design §4.3). The "
+        f"later stages read it from there. The files of this run are in {SPLIT_RUN}: {same}. Do not commit them "
+        "in the place of the accepted split.\\n"
         'Then set STAGE = "checks" and Run all.'
     )
 if after("data"):
-    assert os.path.exists(f"{SPLITS}/split_meta.json"), f'{SPLITS} has no split files: run stage "data" first'
+    # The later stages train and score on the accepted split of the repository, not on the files of a run.
+    assert os.path.exists(f"{SPLITS}/split_meta.json"), f"the repository has no accepted split in {SPLITS}"
     with open(f"{SPLITS}/split_meta.json") as f:
         split_meta = json.load(f)
     assert split_meta.get("limit") is not None and split_meta.get("checks", {}).get("passed"), (
-        f'{SPLITS} has no split that passed the automatic checks of stage "data" (an old split, or a search with no '
-        'limit): run stage "data" again')
+        f'the split in {SPLITS} did not pass the automatic checks of stage "data"')
+    print(f"split: the accepted split of the repository ({SPLITS}): {split_meta['embedding']} embedding, limit "
+          f"{split_meta['limit']:.4f}, {json.dumps(split_meta['images'])}")
 """
 
 CHECKS_CELL = """# Stages 2 to 4. The evaluation on real data, and the training loop on 16 images.
@@ -351,7 +358,8 @@ if at("report"):
                 if (run_dir / fname).exists():
                     zf.write(run_dir / fname, f"results/runs/{run_dir.name}/{fname}")
         for path in sorted(pathlib.Path(SPLITS).iterdir()):
-            zf.write(path, f"splits/{path.name}")
+            if path.is_file():  # the accepted split; the folders hold the splits that were rejected
+                zf.write(path, f"splits/{path.name}")
     print(f"Bundle: {bundle} ({bundle.stat().st_size / 1e6:.1f} MB): the report, the numbers, the figure, the small "
           "files of every run and the split files. Unzip it in the repository root. The sample images are in "
           f"{RESULTS}/samples; they hold dataset images, so read the licence before you publish them.")

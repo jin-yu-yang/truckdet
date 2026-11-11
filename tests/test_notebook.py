@@ -1,5 +1,6 @@
 import ast
 import glob
+import json
 import os
 import re
 from pathlib import Path
@@ -55,6 +56,21 @@ def test_stages_run_in_the_order_of_the_design():
     assert "BATCH_SIZE * ACCUM_STEPS == 16" in source  # the effective batch of the design
     assert 'for arm in "HDBF"' in source and "SEEDS[1:]" in source  # seeds 1 and 2 of every arm
     assert "The gate fails: stop here" in source
+
+
+def test_later_stages_read_the_accepted_split_of_the_repository():
+    """Design §4.3, "The accepted split": the split of the project is the committed split, and no split is made
+    again. Stage `data` writes the files of its run to Drive; the stages after it read `splits/` of the clone."""
+    source = "\n".join(code_cells(build_notebook()))
+    assert 'SPLITS = f"{CODE_DIR}/splits"' in source and 'SPLIT_RUN = f"{DRIVE_ROOT}/splits"' in source
+    assert 'COMMON = f"--data-root {DATA_ROOT} --splits-dir {SPLITS}"' in source
+    assert source.count("--splits-dir {SPLITS}") == 1 and source.count("--splits-dir {SPLIT_RUN}") == 1
+    assert "scripts/make_split.py --data-root {DATA_ROOT} --splits-dir {SPLIT_RUN}" in source
+    assert 'EMBEDDING = "grid"' in source  # the embedding of the accepted split
+    assert "It is a measurement, not a pass rule" in source and "10 pairs or fewer" not in source
+    # the accepted split is in the repository, and it passed the checks that the notebook asserts
+    meta = json.loads((ROOT / "splits" / "split_meta.json").read_text())
+    assert meta["limit"] is not None and meta["checks"]["passed"] and meta["embedding"] == "grid"
 
 
 def test_dataset_folder_is_the_one_with_the_images(tmp_path):

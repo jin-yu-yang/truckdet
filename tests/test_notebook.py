@@ -1,4 +1,6 @@
 import ast
+import glob
+import os
 import re
 from pathlib import Path
 
@@ -53,3 +55,32 @@ def test_stages_run_in_the_order_of_the_design():
     assert "BATCH_SIZE * ACCUM_STEPS == 16" in source  # the effective batch of the design
     assert 'for arm in "HDBF"' in source and "SEEDS[1:]" in source  # seeds 1 and 2 of every arm
     assert "The gate fails: stop here" in source
+
+
+def test_dataset_folder_is_the_one_with_the_images(tmp_path):
+    """Stage `data`, fourth run: the dataset's code archive has a `gt_train.csv` too. In a session that had the
+    archive from an earlier run, the cell took it for the dataset, and the label sheets found no image."""
+    cell = next(source for source in code_cells(build_notebook()) if "def dataset_roots" in source)
+    functions = [node for node in ast.parse(cell).body if isinstance(node, ast.FunctionDef)]
+    assert [f.name for f in functions] == ["is_dataset", "dataset_roots"]
+    namespace = {"os": os, "glob": glob, "LOCAL": str(tmp_path)}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), "data cell", "exec"), namespace)
+    dataset_roots, is_dataset = namespace["dataset_roots"], namespace["is_dataset"]
+
+    rows = "".join(f"{k:08d},car,1,2,30,40\n" for k in (0, 0, 1, 2))  # 3 images, one with two boxes
+    code = tmp_path / "code" / "A-Code"  # the code archive: the CSV, and a train folder with one example image
+    dataset = tmp_path / "MIO-TCD-Localization"
+    for folder in (code, dataset):
+        (folder / "train").mkdir(parents=True)
+        (folder / "gt_train.csv").write_text(rows)
+    (code / "train" / "00000000.jpg").write_bytes(b"")
+    assert dataset_roots() == []  # no folder has its images: the cell extracts the archive
+    for k in (0, 1):
+        (dataset / "train" / f"{k:08d}.jpg").write_bytes(b"")
+    assert dataset_roots() == []  # an extraction that was stopped in the middle is not the dataset
+    (dataset / "train" / "00000002.jpg").write_bytes(b"")
+    assert dataset_roots() == [str(dataset)] and not is_dataset(str(code))
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "gt_train.csv").write_text(rows)  # a CSV with no train folder
+    assert dataset_roots() == [str(dataset)]
+    assert "DATA_ROOT = roots[0]" in cell and "assert roots" in cell

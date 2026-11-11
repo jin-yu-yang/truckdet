@@ -167,14 +167,37 @@ import shutil
 URL = "https://tcd.miovision.com/static/dataset"
 TAR = f"{DRIVE_ROOT}/MIO-TCD-Localization.tar"   # the copy on Drive, for later sessions
 LOCAL_TAR = "/content/MIO-TCD-Localization.tar"
-if not glob.glob(f"{LOCAL}/**/gt_train.csv", recursive=True):
+
+
+def is_dataset(folder: str) -> bool:
+    # The labelled part of MIO-TCD: gt_train.csv, and in train/ one image for each image ID of the CSV.
+    # Two folders have a gt_train.csv and are not that: the dataset's code archive (stage "data" extracts it to
+    # LOCAL/code), and a dataset whose extraction was stopped in the middle.
+    csv_path, train = os.path.join(folder, "gt_train.csv"), os.path.join(folder, "train")
+    if not (os.path.isfile(csv_path) and os.path.isdir(train)):
+        return False
+    with open(csv_path) as f:
+        ids = {line.split(",", 1)[0] for line in f if line.strip()}
+    files = set(os.listdir(train))
+    return bool(ids) and all(f"{i}.jpg" in files for i in ids)
+
+
+def dataset_roots() -> list:
+    found = glob.glob(f"{LOCAL}/**/gt_train.csv", recursive=True)
+    return sorted(folder for folder in (os.path.dirname(f) for f in found) if is_dataset(folder))
+
+
+roots = dataset_roots()
+if not roots:
     if not os.path.exists(TAR):
         # Download to local disk first (a download straight to Drive is slow and cannot continue), then copy.
         run(f"wget -c --progress=dot:giga -O {LOCAL_TAR} {URL}/MIO-TCD-Localization.tar")
         run(f"cp {LOCAL_TAR} {TAR}.part && mv {TAR}.part {TAR}")
     source = LOCAL_TAR if os.path.exists(LOCAL_TAR) else TAR
     run(f"mkdir -p {LOCAL} && tar -xf {source} -C {LOCAL}")
-DATA_ROOT = os.path.dirname(glob.glob(f"{LOCAL}/**/gt_train.csv", recursive=True)[0])
+    roots = dataset_roots()
+assert roots, f"no folder under {LOCAL} has gt_train.csv and, in train/, an image for each image ID of the CSV"
+DATA_ROOT = roots[0]
 print("dataset:", DATA_ROOT)
 if os.path.exists(f"{CACHE}/annotations.json") and not os.path.exists(f"{DATA_ROOT}/annotations.json"):
     for name in ("annotations.json", "counts.json"):

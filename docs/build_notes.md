@@ -481,3 +481,22 @@ one image is 8.6% of the dataset and 28% of the test split. This is a number for
 if its groups have such sizes, the test split has many frames that are not near any other frame.
 
 The split files of this run are in `splits/rejected_links_mean/`, as a record.
+
+## 11. The notebook took the code archive for the dataset
+
+The fourth run of stage `data` (for the grid embedding) stopped before the split, with
+"No such file or directory: /content/data/code/MIO-TCD-Localization-Code/train/00000301.jpg".
+
+- **Cause.** The dataset cell of the notebook took the first `gt_train.csv` under `/content/data`
+  as the dataset. Stage `data` extracts the dataset's code archive to `/content/data/code`, and
+  that archive has a `gt_train.csv` too. In a new session the archive is not there yet when the
+  cell runs, so runs 1 to 3 were correct. This run used a session that had the archive from the
+  run before it, and the cell took the folder of the archive.
+- **What the run did before it stopped.** It copied the cached `annotations.json` and `counts.json`
+  into the folder of the archive and printed the counts from them. Nothing was written to Drive: the
+  split files and the embeddings are as they were.
+- **Fix.** A folder is the dataset only if it has `gt_train.csv` and, in `train/`, an image for
+  each image ID of the CSV (`is_dataset` in the dataset cell). This also makes the cell extract the
+  archive again after an extraction that was stopped in the middle. The fix is in the notebook
+  file, so open the notebook from GitHub again; the cell that pulls the code does not update the
+  notebook.

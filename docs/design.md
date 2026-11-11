@@ -4,6 +4,7 @@
 - **Status:** ready to build.
 - **Changed:** 2026-11-10, change 1: scene groups by links, a split with a cap for each group, and a bootstrap of scene groups (§4.3, §4.5, §7.3, §11). The first method, k-means, failed the scene check on MIO-TCD: `docs/build_notes.md` §8. All other sections are as they were.
 - **Changed:** 2026-11-10, change 2: the split of the fourth run on MIO-TCD (links, the second embedding) is the split of the project. The scene check is a measurement now, not a pass rule. The answer is for test images that have no near image in the training data; it is not an answer for new cameras (§3, §4.3, §4.5, §11, §12). Three splits failed the scene check: `docs/build_notes.md` §8, §10 and §12. The predictions and readings (§2), the arms, the training, the metrics, the two automatic checks and the bootstrap of scene groups (§7.3) are as they were.
+- **Changed:** 2026-11-10, a decision on the label check (§4.5, §11): the count of clear objects decides the check. It is 2.0%, so the labels pass. The count with the objects that a person can only guess, about 10.5%, goes in the report.
 - **Builds on:** the truck project in `~/detr-lora`. See the README sections "After the fourth round" and "Two-stage classification", `detr-lora/results/clip_second_stage.md`, and the code in `detr-lora/src/detr_lora/model/lora.py`, `detr-lora/src/detr_lora/diagnostics.py` and `detr-lora/src/detr_lora/separation.py`.
 - **Home:** a new repository. This file is here because the question comes from this repository's results. Move it when the new repository exists.
 
@@ -237,6 +238,8 @@ The dataset uses this class for vehicles that are too small to identify. The off
 
 - **Counts:** the converter gives the three reference counts of §4.1. Find the cause of each difference.
 - **Label completeness:** draw 100 random images with their boxes. Count the vehicles and pedestrians that have no box. If more than 5% have no box, the labels are not complete. Record the rate and stop: this was the first cause of failure in the truck project.
+  - *Which objects count (decided 2026-11-10).* The clear objects decide the check. A clear object is a vehicle or a pedestrian that is fully visible, and that moves or is on the road. The objects that a person can only guess are a second count: tiny, occluded or blurred vehicles, and vehicles at night that show only their lights. The second count does not decide the check. It goes in the report.
+  - *Result on MIO-TCD.* The 100 images have 297 boxes. 6 clear objects have no box: 6 of 303, 2.0%. The check passes. With the second count, about 35 objects have no box: about 10.5%. No pedestrian with no box was found. The counts are in `splits/label_measurement.json`.
 - **Class counts:** each specific class has 100 boxes or more in the test split and 30 or more in the val split. The split of §4.3 takes groups until this is true.
 - **No overlap:** no image and no scene group is in two splits.
 - **Group check (automatic):** for each image, find its most similar image outside its group. No such similarity is at or above the chosen limit. The count of failures must be 0.
@@ -406,7 +409,7 @@ Each stage ends with a check. Do not start a stage before the check of the stage
 
 ## 11. Risks and limits
 
-- **Incomplete labels.** The dataset describes its boxes as foreground objects. Parked vehicles possibly have no box. The label check of §4.5 measures this before any training.
+- **Incomplete labels.** The dataset describes its boxes as foreground objects. Parked vehicles possibly have no box. The label check of §4.5 measured this before any training: 2.0% of the clear objects have no box, and about 10.5% with the objects that a person can only guess (tiny, occluded or blurred vehicles, and lights at night). A detection on an object with no box is a false positive, for each arm.
 - **A small difference between H and F.** The gate stops the project early.
 - **F is not fully tuned.** With no weight averaging and no layer-wise decay, AP_F is possibly low. Then R_B is too high. The learning-rate choice decreases this risk; the report must state it.
 - **The cameras are not separated.** The test images have no near image in the training data: no training image has a similarity of 0.7214 or more to a test image. For 60 of 100 test images, the nearest training-pool image shows the same camera in other conditions. The count has an interval of about 50% to 69%, and it is a lower limit: a camera can be in the train pool and not be the nearest image. So the answer is for images that are different from the training images. It is not an answer for new cameras.

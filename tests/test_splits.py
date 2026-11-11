@@ -71,6 +71,17 @@ def test_the_composition_is_that_of_the_design(split):
     assert composition["at_cap"]["test"] == {"cap": 300, "groups": 22, "images": 6_600}
 
 
+def test_the_label_measurement_is_the_count_of_the_person():
+    """Design §4.5: the clear objects decide the label check; the count at a best guess is for the report."""
+    measurement = json.loads((SPLITS / report.LABEL_MEASUREMENT).read_text())
+    boxes, clear, guess = (measurement[k] for k in ("boxes", "clear_objects_with_no_box", "all_objects_with_no_box_best_guess"))
+    assert (measurement["images"], boxes, clear, guess) == (100, 297, 6, 35)
+    assert clear / (boxes + clear) == pytest.approx(0.020, abs=5e-4) and clear / (boxes + clear) <= measurement["limit"] == 0.05
+    assert guess / (boxes + guess) == pytest.approx(0.105, abs=5e-4)
+    (line,) = report._label_limit(measurement)
+    assert "6 clear objects with no box: 2.0% of the clear objects" in line and "about 10.5%" in line
+
+
 def test_the_scene_measurement_is_the_count_of_the_person():
     """A measurement for the report, not a pass rule (design §4.5)."""
     measurement = json.loads((SPLITS / report.SCENE_MEASUREMENT).read_text())

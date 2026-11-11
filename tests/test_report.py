@@ -127,6 +127,8 @@ def test_render_handles_missing_classes_and_shows_the_outcomes():
     split = {
         "groups": 41,
         "split_meta": {"limit": 0.97531, "caps": {"test": 250, "val": 80}, "checks": {"passed": True}},
+        "label_measurement": {"images": 100, "boxes": 297, "limit": 0.05, "clear_objects_with_no_box": 6,
+                              "all_objects_with_no_box_best_guess": 35},
         "scene_measurement": {"scene_pairs": {"looked_at": 100, "same_camera_view": 60},
                               "largest_group": {"images_looked_at": 50, "cameras": 5},
                               "random_image_split": {"looked_at": 50, "same_camera_view": 50}},
@@ -153,6 +155,10 @@ def test_render_handles_missing_classes_and_shows_the_outcomes():
     assert ("- **A few groups give most of the test split.** 22 groups are at the cap of 250 and give 5,500 of the "
             "10,000 images. One group can hold more than one camera: 50 images of the largest group show 5 cameras.") in limits
     assert "this rule set 0.9753" in limits
+    # the label check of design §4.5: the clear objects decide it, and the second count is reported
+    assert ("- **Some objects have no box.** On 100 random images with 297 boxes, a person found 6 clear objects with "
+            "no box: 2.0% of the clear objects (the limit of the label check is 5%).") in limits
+    assert "about 35 objects have no box: about 10.5%." in limits and "Some objects have no box" not in text
     # the limits of change 1 that the measurement replaces are gone
     assert "This is safe for the split" not in with_split and "Two parts of one camera" not in with_split
     assert all(c in text for c in SPECIFIC_CLASSES) and stats.P3_THRESHOLD == pytest.approx(0.6667, abs=1e-4)

@@ -5,7 +5,8 @@
 Writes <data-root>/annotations.json and counts.json, compares the counts with the reference counts of the
 design (§4.5), and draws 100 random images with their boxes for the label completeness check: count the
 vehicles and pedestrians that have no box. If more than 5% have no box, the labels are not complete: record
-the rate and stop.
+the rate and stop. The clear objects decide the check: fully visible, and moving or on the road. The objects
+that a person can only guess (tiny, occluded, blurred, lights at night) are a second count, for the report.
 """
 
 import argparse
@@ -63,7 +64,9 @@ def main(argv: list[str] | None = None) -> None:
         picks = np.random.default_rng(args.seed).choice(ids, size=min(args.label_images, len(ids)), replace=False)
         sheets = label_sheets(coco, sorted(picks.tolist()), args.data_root / IMAGE_DIR, args.sheets_dir)
         print(f"[check] label completeness: look at {len(sheets)} sheets in {args.sheets_dir} ({len(picks)} images). "
-              "Count the vehicles and pedestrians with no box. More than 5%: record the rate and stop.")
+              "Count the vehicles and pedestrians with no box. The clear objects decide the check (fully visible, and "
+              "moving or on the road): more than 5% of them with no box: record the rate and stop. The objects that "
+              "you can only guess (tiny, occluded, blurred, lights at night) are a second count, for the report.")
     raise SystemExit(CHECK_FAILED if differences else 0)
 
 

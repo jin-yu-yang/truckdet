@@ -1,0 +1,12 @@
+{
+  "what": "Counts by a person on the label sheets of stage 1: 100 random images with their boxes (docs/design.md, section 4.5; docs/build_notes.md, sections 8 and 14). The count of clear objects decides the label check. The count at a best guess is for the report.",
+  "date": "2026-11-10",
+  "images": 100,
+  "boxes": 297,
+  "limit": 0.05,
+  "clear_objects_with_no_box": 6,
+  "clear_object": "a vehicle or a pedestrian that is fully visible, and that moves or is on the road",
+  "all_objects_with_no_box_best_guess": 35,
+  "best_guess": "the clear objects, and also tiny, occluded and blurred vehicles, and vehicles at night that show only their lights; the count is approximate",
+  "pedestrians_with_no_box": 0
+}

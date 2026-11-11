@@ -41,6 +41,8 @@ ANALYSIS_VERSION = "2"
 ERROR_SETS = {"specific classes": SPECIFIC_CLASSES, "truck family": TRUCK_FAMILY}
 # The counts of a person on the sheets of stage 1 (design §4.5): a measurement, not a pass rule.
 SCENE_MEASUREMENT = "scene_measurement.json"
+# The counts of a person on the label sheets (design §4.5): the clear objects decide the label check.
+LABEL_MEASUREMENT = "label_measurement.json"
 # The two rows of the composition table (design §11): images from small groups and from large groups.
 SMALL_GROUP, LARGE_GROUP = 100, 1000
 COMPOSITION_PARTS = {"dataset": "Dataset", "train": "Train subset", "test": "Test", "val": "Val"}
@@ -326,12 +328,28 @@ def _composition_limits(composition: dict | None, caps: dict, measurement: dict)
     return lines
 
 
+def _label_limit(measurement: dict) -> list[str]:
+    """The result of the label check of design §4.5 as a limit: the two counts of a person."""
+    boxes, clear = measurement.get("boxes"), measurement.get("clear_objects_with_no_box")
+    if not boxes or clear is None:
+        return []
+    text = (f"- **Some objects have no box.** On {measurement.get('images', 100)} random images with {boxes:,} boxes, "
+            f"a person found {clear} clear objects with no box: {_pct(clear / (boxes + clear))} of the clear objects "
+            f"(the limit of the label check is {100 * measurement.get('limit', 0.05):.0f}%). A clear object is fully "
+            "visible, and it moves or is on the road.")
+    guess = measurement.get("all_objects_with_no_box_best_guess")
+    if guess:
+        text += (" With the objects that a person can only guess (tiny, occluded or blurred vehicles, and lights at "
+                 f"night), about {guess} objects have no box: about {_pct(guess / (boxes + guess))}.")
+    return [text + " A detection on an object with no box is a false positive, for each arm."]
+
+
 def render(numbers: dict, context: dict) -> str:
     """The report as markdown. `context`: images, groups (scene groups of the split), seeds, n_boot, split,
     trainable (arm -> parameters), selection, gate, figure (file name or None), samples (file names),
     split_meta (`split_meta.json`: the limit, the caps and the automatic checks of the scene groups),
-    scene_measurement (`scene_measurement.json`: the counts of a person) and composition
-    (`split_composition`)."""
+    scene_measurement and label_measurement (`scene_measurement.json`, `label_measurement.json`: the counts
+    of a person) and composition (`split_composition`)."""
     arms, readings = numbers["arms"], numbers["readings"]
     b_d = numbers["differences"]["B - D"]
     family = numbers["errors"]["truck family"]["B - D"]
@@ -488,6 +506,7 @@ def render(numbers: dict, context: dict) -> str:
               f"- **The limit is the result of one rule.** The search for the limit stops when the largest group has "
               f"more than 20% of the images, and this rule set {_limit(split_meta.get('limit'))}. The 20% is a choice. "
               "No other limit was tried.",
+              *_label_limit(context.get("label_measurement") or {}),
               "- **The intervals show the dependence on the scene groups of the test split.** They do not show the "
               f"variance between seeds; the tables give the {n_seeds} seed values and the seed pairs for that.",
               "- **Not a leaderboard number.** The public MIO-TCD leaderboard uses another split, all the training "
@@ -531,12 +550,14 @@ def analyse(runs_root, data_root, splits_dir, out_dir, split: str = "test", n_bo
     gate_path = runs_root / GATE
     samples_dir = out_dir / "samples"
     meta_path, measurement_path = Path(splits_dir) / "split_meta.json", Path(splits_dir) / SCENE_MEASUREMENT
+    label_path = Path(splits_dir) / LABEL_MEASUREMENT
     split_meta = json.loads(meta_path.read_text()) if meta_path.exists() else None
     context = {
         "images": len(gt["images"]), "groups": int(len(np.unique(groups))), "seeds": list(seeds), "n_boot": n_boot,
         "split": split, "trainable": trainable,
         "split_meta": split_meta,
         "scene_measurement": json.loads(measurement_path.read_text()) if measurement_path.exists() else None,
+        "label_measurement": json.loads(label_path.read_text()) if label_path.exists() else None,
         "composition": split_composition(splits_dir, (split_meta or {}).get("caps")),
         "selection": read_selection(runs_root), "gate": json.loads(gate_path.read_text()) if gate_path.exists() else None,
         "figure": figure,

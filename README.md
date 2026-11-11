@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) is finished: the counts and the class counts pass, and the split of the project is in [splits/](splits/README.md). It is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). The label completeness decision is open, and it comes before the first training run. There is no training run yet, so no results yet.
+> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) is finished: the counts and the class counts pass, and the split of the project is in [splits/](splits/README.md). It is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). The label check passes: 2.0% of the clear objects have no box. There is no training run yet, so no results yet.
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 
@@ -208,6 +208,10 @@ All analysis runs on a CPU from the saved predictions of each run.
   val split is different from the test split.
 - One rule set the limit of 0.7214: the largest group has at most 20% of
   the images. No other limit was tried.
+- Some objects have no box: 2.0% of the clear objects, and about 10.5% with
+  the objects that a person can only guess (tiny, occluded or blurred
+  vehicles, and lights at night). A detection on such an object is a false
+  positive, for each arm.
 - Equal parameter counts are not equal capacity. Rank 33 is a larger share of
   a decoder matrix than rank 9 is of a backbone matrix.
 

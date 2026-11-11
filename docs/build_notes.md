@@ -19,7 +19,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, third run: the new split method with the mean embedding | MIO-TCD, Colab T4 | The search and the automatic checks ran on the GPU and passed. **The scene check fails:** the same camera in 71 of 100 pairs (§10). The split is not accepted |
 | Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split was not accepted then. Design change 2 accepts it with its scene measurement (§13) |
 | Design change 2: the split of the fourth run is the split of the project (§13) | The split files of the repository, CPU | The seven files have the hashes of the change, and its numbers agree with the files. The report gives the scope of the answer and the new limits |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 154 passed |
+| Label completeness (stage 1), with the decision of §14 | A person, 100 random images of MIO-TCD | **Passed:** 2.0% of the clear objects have no box (the limit is 5%). About 10.5% with the objects that a person can only guess; this count goes in the report |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 155 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -28,8 +29,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | **Not run:** the start model and a training run on MIO-TCD | | Stage `checks` of the notebook |
 
 So stage `checks` of the notebook is the first training run on the GPU, and the first run of the
-model on MIO-TCD images. The split is accepted now (§13). The label completeness decision (§8) is
-still open, and it comes before the first training run.
+model on MIO-TCD images. The split is accepted (§13), and the label check passes with the count of
+clear objects (§14). So each check of stage 1 has its result, and stage `checks` can start.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -301,7 +302,8 @@ have 297 boxes. The count of the objects with no box, by a person:
 | All objects at a best guess: also tiny, occluded and blurry vehicles, and headlights at night | about 35 | 35 of 332 = about 10.5% |
 
 No pedestrian with no box was found. The limit of design §4.5 is 5%: the first count is below it,
-and the second is above it. The design does not say which objects count. This decision is open.
+and the second is above it. The design did not say which objects count. Decided on 2026-11-10 (§14):
+the clear objects decide the check, so it passes with 2.0%.
 
 **Scene check: failed.** A person looked at 5 of the sheets of the scene split, 125 pairs. Each
 pair shows the same camera view. The limit is 10 pairs of 200. So the k-means groups do not
@@ -700,4 +702,35 @@ results, to read the first screen and the limits. No stage of the notebook ran a
 the one of §12, and the next stage is `checks`.
 
 **Open.** The label completeness decision of §8 (2.0% for clear objects, about 10.5% by best guess,
-against the limit of 5%). It comes before the first training run.
+against the limit of 5%). It comes before the first training run. Closed in §14.
+
+## 14. The label completeness decision
+
+The label check of design §4.5 had two counts and no rule for which objects count (§8). The
+decision of 2026-11-10: **the clear objects decide the check.**
+
+| What is counted | With no box | Rate | |
+|---|---|---|---|
+| Clear objects: a vehicle or a pedestrian that is fully visible, and that moves or is on the road | 6 | 6 of 303 = 2.0% | Decides the check. The limit is 5%: **passed** |
+| All objects at a best guess: also tiny, occluded and blurred vehicles, and vehicles at night that show only their lights | about 35 | 35 of 332 = about 10.5% | For the report. It does not decide the check |
+
+The 100 images have 297 boxes. No pedestrian with no box was found.
+
+**What is built.**
+
+| Change | Where |
+|---|---|
+| The rule and the result | Design §4.5 (two lines under "Label completeness"), §11 ("Incomplete labels"), and a line in the header |
+| The counts of the person | `splits/label_measurement.json`, next to `scene_measurement.json`: the report reads one folder |
+| A limit in the report with the two rates | `report._label_limit`: "Some objects have no box" |
+| The words of the check | `scripts/prepare_data.py` and the closing text of stage 1 in the notebook: which objects decide the check |
+| The status and one limit | `README.md`; a row in `splits/README.md` |
+
+**A decision inside it.** The second count is in the report as a limit, with its rate. The reason: a
+detection on an object with no box is a false positive, and about 1 object of 10 at a best guess
+has no box. This is the same for each arm, so it lowers each AP and it is not a known advantage of
+one arm.
+
+With this, each check of stage 1 has its result: the counts, the label check, the class counts, no
+overlap, the group check and the split check passed, and the scene measurement is recorded (§13).
+The next stage is `checks`.

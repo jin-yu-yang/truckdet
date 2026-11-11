@@ -35,6 +35,7 @@ images that have no near image in the training data. It is not an answer for new
 | `scene_groups.csv` | The scene group of every labelled image. The bootstrap of the report resamples these groups | `fa9415a232f91b3b` |
 | `split_meta.json` | The limit and the record of its search, the caps, groups, images and boxes per class in each split, and the results of the automatic checks | `f33f827175f90a8f` |
 | `scene_measurement.json` | The counts of a person on the sheets: the scene pairs (60 of 100), the cameras in 50 images of the largest group (5), and the pairs of a random image split (50 of 50). Not a file of the run | |
+| `label_measurement.json` | The counts of a person on the label sheets of 100 random images with 297 boxes: 6 clear objects with no box (2.0%; this count decides the label check of design §4.5), and about 35 at a best guess (about 10.5%). Not a file of the run | |
 
 `tests/test_splits.py` checks the seven hashes and the counts. The notebook reads this folder in stages
 `checks` to `report`.

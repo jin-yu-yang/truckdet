@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) ran three times on MIO-TCD: the counts and the class counts pass, but two split methods failed the scene check (k-means; then groups by links with the mean embedding). The design's next step is one run with a second embedding. There is no accepted split, and no training run yet, so no results yet.
+> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) ran four times on MIO-TCD: the counts and the class counts pass, but three splits failed the scene check (k-means; then groups by links with the mean embedding; then with the second embedding, the 4 × 4 grid: the same camera in 60 of 100 pairs). The design asks for a decision now: continue with a random image split, or stop (`docs/build_notes.md` §12). There is no accepted split, and no training run yet, so no results yet.
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 

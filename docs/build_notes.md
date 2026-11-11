@@ -16,7 +16,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, second run | MIO-TCD, Colab T4 | The class counts pass with a val split of 5,724 images. **The scene check fails:** the scene groups do not separate the cameras (§8). The split is not accepted |
 | The new split method of design change 1 (§9) | Invented cameras (`scripts/scene_split_simulation.py`), CPU | The search, the split and the two automatic checks work, and the failure signals work |
 | Stage 1, third run: the new split method with the mean embedding | MIO-TCD, Colab T4 | The search and the automatic checks ran on the GPU and passed. **The scene check fails:** the same camera in 71 of 100 pairs (§10). The split is not accepted |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 147 passed |
+| Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split is not accepted. Both embeddings have failed: the design asks for a decision |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 148 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -25,7 +26,8 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | **Not run:** the start model and a training run on MIO-TCD | | Stage `checks` of the notebook |
 
 So stage `checks` of the notebook is the first training run on the GPU, and the first run of the
-model on MIO-TCD images. It does not start before a split passes the scene check (§8).
+model on MIO-TCD images. It does not start before there is an accepted split. Three splits failed
+the scene check (§8, §10, §12), and the next step is a decision (§12).
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -500,3 +502,123 @@ The fourth run of stage `data` (for the grid embedding) stopped before the split
   archive again after an extraction that was stopped in the middle. The fix is in the notebook
   file, so open the notebook from GitHub again; the cell that pulls the code does not update the
   notebook.
+
+## 12. Stage 1 on MIO-TCD: the fourth run, done again (groups by links, grid embedding)
+
+The fourth run stopped before the split (§11). This is the same run, done again with the notebook at
+commit `2efbd61`, 2026-11-10, on the T4, with `EMBEDDING = "grid"`. It is the second embedding of
+design §4.3, and the design allows it one time. The dataset cell took the correct folder
+(`/content/data/MIO-TCD-Localization`).
+
+**The embedding.** 6,144 numbers for each image (the mean of the last feature map in each cell of a
+4 × 4 grid), with the mean of all images subtracted. The median similarity to the nearest image is
+0.8980, and that of random pairs is −0.0137. For the mean embedding these were 0.9967 and 0.9244, so
+the grid embedding uses a much larger part of the scale. Images next to each other in ID order have a
+mean similarity of 0.003, and random pairs 0.001: the IDs do not show the camera.
+
+**The search.**
+
+| Limit | Groups | The largest group | |
+|---|---|---|---|
+| 0.8980 | 67,367 | 1.5% of the images | |
+| 0.8822 | 55,208 | 2.0% | |
+| 0.8641 | 42,582 | 5.2% | |
+| 0.8431 | 30,707 | 6.5% | |
+| 0.8189 | 20,322 | 7.3% | |
+| 0.7909 | 12,008 | 7.5% | |
+| 0.7587 | 6,322 | 7.7% | |
+| **0.7214** | 3,061 | 11.5% | chosen: the lowest that is not over-linked |
+| 0.6784 | 1,322 | 21.5% | over-linked |
+
+**The split at the limit 0.7214.**
+
+| | Images | Scene groups |
+|---|---|---|
+| test | 10,001 | 1,096 |
+| val | 2,017 | 513 |
+| train pool | 67,785 | 1,452 |
+| train subset | 8,000 | |
+| not used (over the cap of a test or val group) | 30,197 | 29 |
+
+The smallest classes: `motorcycle` 148 and `non-motorized_vehicle` 257 in test (100 needed);
+`motorcycle` 45 and `non-motorized_vehicle` 48 in val (30 needed).
+
+**The automatic checks: passed.** No overlap, class counts, the group check (0 failures: the highest
+similarity of an image to an image outside its group is 0.721404, just below the limit of 0.721408)
+and the split check (0 failures: the highest similarity of a test image to a train-pool image is
+0.7212, of a val image to a train-pool image 0.7212, and of a test image to a val image 0.7210).
+
+**The scene check: failed.** A person looked at 4 of the 8 sheets of the scene split, 100 pairs:
+
+| Sheet | The same camera view | Different camera views |
+|---|---|---|
+| `scene_split_01.jpg` | 14 | 11 |
+| `scene_split_02.jpg` | 13 | 12 |
+| `scene_split_03.jpg` | 17 | 8 |
+| `scene_split_04.jpg` | 16 | 9 |
+| **All** | **60** | **40** |
+
+The limit is 10 pairs of 200. The pairs have a mean similarity of 0.554, and the highest is 0.7196,
+below the limit of 0.7214, as the split check says. The pairs of the random image split have a mean
+similarity of 0.885, and the highest is 1.0000: the dataset has pairs of images that are equal to 4
+decimal places in this embedding. The sheets of the random image split were not counted in this run.
+
+The 60 is a lower limit for the share of test images whose camera is in the train pool. A pair
+shows only the nearest train-pool image. If that image shows a different camera, a frame of the
+test image's camera can still be in the train pool, at a lower similarity.
+
+**The largest group** has 12,603 images (11.5%), and it is in the train pool. Its share is not near
+20%, but a person looked at the 50 images of `largest_group.jpg`. They show 5 cameras: one camera
+has 26 of the 50, and the others have 10, 9, 4 and 1. The camera with 4 is a dark road with no
+street light, which the person had seen on the sheets of an earlier run. Some of its images are
+very dark; they are counted as this camera because the centre lines and the angle are the same.
+The largest group of the third run showed 14 cameras in 50 images.
+
+**What the two looks show together.** As in §10, both things are true at one limit:
+
+- images of 5 cameras or more are in one group, so there are pairs of two cameras at or above 0.7214;
+- 60% of the test images or more have a frame of their own camera in the train pool, so there are
+  pairs of one camera below 0.7214.
+
+The grid embedding is better than the mean embedding on both counts, but it is far from the limit
+of the scene check (5%):
+
+| Split | Scene check: pairs that show the same camera | The largest group: cameras in 50 images |
+|---|---|---|
+| K-means, k = 1,000, mean embedding (§8) | 125 of 125 | not looked at |
+| Links, mean embedding, limit 0.9913 (§10) | 71 of 100, and 2 not clear | 14 |
+| Links, grid embedding, limit 0.7214 (this run) | 60 of 100 | 5 |
+| Random image split (the sheets of the third run) | 50 of 50 | |
+
+**The result for the design.** Both embeddings failed the scene check. This is step 2 of "If no
+limit passes" in design §4.3: the cameras are not separable with these tools, and a decision is
+needed. The alternatives of the design are: continue with a random image split (the design
+recommends this), or stop. No other limit and no third embedding was tried, as the design says.
+
+**The sizes of the groups** at this limit, from `scene_groups.csv`:
+
+| Images in the group | Groups | Share of all images |
+|---|---|---|
+| 1 | 2,082 | 1.9% |
+| 2 to 9 | 818 | 2.1% |
+| 10 to 99 | 83 | 2.4% |
+| 100 or more | 78 | 93.6% |
+
+The 12 largest groups have 49% of the images (12,603; 8,477; 5,205; 4,790; 3,563; ...). In the test
+split, 22 groups over the cap give 6,600 of its 10,001 images, and groups of one image give 757.
+
+**Open, with the decision: the unit of the bootstrap.** Design §7.3 resamples the scene groups of the
+split. A random image split has no scene groups of its own, and `runs.split_groups` stops if
+`scene_groups.csv` is not there. The design does not say what the unit is in that case. Nothing is
+built for this yet. The numbers for the decision:
+
+- The groups of this run can be the unit. They are not cameras, but each group holds frames that
+  are near each other, and a group that joins cameras makes an interval wider, not narrower.
+- With these groups, a random test split of 10,000 images (seed 0) has images of 522 groups. The
+  largest group gives 1,139 of them (11.4%), and the next give 723, 471, 432 and 348.
+- A rough measure of the number of independent units is the square of the image count, divided by
+  the sum of the squares of the group counts. It is 30 for that random test split, and 46 for the
+  test split of this run (the caps make the groups more equal). So the intervals of a group
+  bootstrap will be much wider than those of an image bootstrap in both cases.
+
+The split files of this run are in `splits/rejected_links_grid/`, as a record.

@@ -240,6 +240,11 @@ if at("data"):
     automatic = 'FAILED (see "[check]" above). Do not go on' if split_failed else "passed"
     counts = ("DIFFERENT from the reference counts (see above): find the cause of each difference" if counts_differ
               else "equal to the reference counts")
+    if EMBEDDING == "mean":
+        if_fails = 'set EMBEDDING = "grid" and Run all, one time (design §4.3)'
+    else:
+        if_fails = ("this was the second embedding, so do not try a third. A decision is needed (design §4.3): "
+                    "continue with a random image split, or stop")
     raise SystemExit(
         "Stage 1 finished. Before you go on:\\n"
         f"1. Counts: {counts}.\\n"
@@ -251,7 +256,7 @@ if at("data"):
         f"4. Scene check: open {CHECKS}/scenes. Count the scene_split pairs that show the same camera view; accept "
         "the split if 10 pairs or fewer do. Each pair is below the limit now: the question is if the limit is low "
         "enough. Do the same count on the random_split sheets, for the report. If the scene check fails, do not try "
-        'other limits: set EMBEDDING = "grid" and Run all, one time (design §4.3).\\n'
+        f"other limits: {if_fails}.\\n"
         f"5. Look at {CHECKS}/scenes/largest_group.jpg: 50 images of the largest scene group. If its share is near "
         "20%, look at them before you accept the split.\\n"
         f"6. Look at {CHECKS}/coco_detections.jpg: the COCO checkpoint's detections on 20 images.\\n"

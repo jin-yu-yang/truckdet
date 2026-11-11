@@ -2,13 +2,15 @@
 
 Stage `data` of the notebook writes these files (`scripts/make_split.py`); commit them here.
 
-**There is no accepted split yet.** Two folders hold splits that failed the scene check of design §4.5. Do not
-train on them. They are kept as a record; see `docs/build_notes.md` §8 and §10.
+**There is no accepted split yet.** Three folders hold splits that failed the scene check of design §4.5. Do not
+train on them. They are kept as a record; see `docs/build_notes.md` §8, §10 and §12. Both embeddings of
+design §4.3 have failed, so the design asks for a decision: a random image split, or stop.
 
 | Folder | Method | Result of the scene check |
 |---|---|---|
 | `rejected_kmeans_k1000/` | Second run on MIO-TCD (commit `ef89272`): k-means scene groups, k = 1,000 | The same camera in 125 of the 125 pairs that were looked at (the limit is 10 of 200) |
 | `rejected_links_mean/` | Third run (commit `016e74f`): groups by links at the limit 0.9913, mean embedding | The same camera in 71 of the 100 pairs that were looked at |
+| `rejected_links_grid/` | Fourth run (commit `2efbd61`): groups by links at the limit 0.7214, the second embedding (4 × 4 grid) | The same camera in 60 of the 100 pairs that were looked at |
 
 | File | Content |
 |---|---|

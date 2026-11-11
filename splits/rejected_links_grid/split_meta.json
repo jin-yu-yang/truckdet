@@ -1,0 +1,180 @@
+{
+  "boxes_per_class": {
+    "test": {
+      "articulated_truck": 891,
+      "bicycle": 584,
+      "bus": 2001,
+      "car": 21811,
+      "motorcycle": 148,
+      "motorized_vehicle": 3149,
+      "non-motorized_vehicle": 257,
+      "pedestrian": 708,
+      "pickup_truck": 2220,
+      "single_unit_truck": 816,
+      "work_van": 1015
+    },
+    "train": {
+      "articulated_truck": 649,
+      "bicycle": 171,
+      "bus": 703,
+      "car": 13253,
+      "motorcycle": 120,
+      "motorized_vehicle": 1781,
+      "non-motorized_vehicle": 150,
+      "pedestrian": 489,
+      "pickup_truck": 3697,
+      "single_unit_truck": 332,
+      "work_van": 628
+    },
+    "train_pool": {
+      "articulated_truck": 5320,
+      "bicycle": 1456,
+      "bus": 5715,
+      "car": 111387,
+      "motorcycle": 895,
+      "motorized_vehicle": 14138,
+      "non-motorized_vehicle": 1252,
+      "pedestrian": 3814,
+      "pickup_truck": 31818,
+      "single_unit_truck": 2957,
+      "work_van": 5300
+    },
+    "val": {
+      "articulated_truck": 288,
+      "bicycle": 85,
+      "bus": 712,
+      "car": 5368,
+      "motorcycle": 45,
+      "motorized_vehicle": 665,
+      "non-motorized_vehicle": 48,
+      "pedestrian": 209,
+      "pickup_truck": 460,
+      "single_unit_truck": 144,
+      "work_van": 151
+    }
+  },
+  "caps": {
+    "test": 300,
+    "val": 100
+  },
+  "checks": {
+    "group_check": {
+      "failures": 0,
+      "highest_similarity_outside_a_group": 0.7214040756225586
+    },
+    "no_overlap_and_class_counts": [],
+    "passed": true,
+    "split_check": {
+      "errors": [],
+      "test groups": 1096,
+      "test to train_pool": {
+        "at_or_above_the_limit": 0,
+        "highest_similarity": 0.7212123274803162
+      },
+      "test to val": {
+        "at_or_above_the_limit": 0,
+        "highest_similarity": 0.7210168242454529
+      },
+      "val groups": 513,
+      "val to train_pool": {
+        "at_or_above_the_limit": 0,
+        "highest_similarity": 0.7211817502975464
+      }
+    }
+  },
+  "class_minimums": {
+    "test": 100,
+    "val": 30
+  },
+  "embedding": "grid",
+  "group_source": "connected sets of the images that are linked at a cosine similarity at or above the limit; embedding: the last feature map of the frozen backbone at 224 px, as the mean in each cell of a 4 x 4 grid, with the mean of all images subtracted",
+  "groups": 3061,
+  "groups_per_split": {
+    "test": 1096,
+    "train_pool": 1452,
+    "val": 513
+  },
+  "images": {
+    "test": 10001,
+    "train": 8000,
+    "train_pool": 67785,
+    "unused": 30197,
+    "val": 2017
+  },
+  "largest_group_share": 0.11457272727272727,
+  "limit": 0.7214081883430481,
+  "model": "Roboflow/rf-detr-base",
+  "neighbour_similarity": {
+    "adjacent_ids": 0.0025707051100831127,
+    "random_pairs": 0.0007837479261226359
+  },
+  "requested": {
+    "test": 10000,
+    "train": 8000,
+    "val": 2000
+  },
+  "search": {
+    "candidates": [
+      {
+        "groups": 67367,
+        "largest_group_share": 0.014936363636363637,
+        "limit": 0.8979809880256653,
+        "over_linked": null
+      },
+      {
+        "groups": 55208,
+        "largest_group_share": 0.01998181818181818,
+        "limit": 0.8822372555732727,
+        "over_linked": null
+      },
+      {
+        "groups": 42582,
+        "largest_group_share": 0.052427272727272725,
+        "limit": 0.8640639781951904,
+        "over_linked": null
+      },
+      {
+        "groups": 30707,
+        "largest_group_share": 0.06532727272727273,
+        "limit": 0.8430861234664917,
+        "over_linked": null
+      },
+      {
+        "groups": 20322,
+        "largest_group_share": 0.07258181818181818,
+        "limit": 0.8188709616661072,
+        "over_linked": null
+      },
+      {
+        "groups": 12008,
+        "largest_group_share": 0.07525454545454545,
+        "limit": 0.7909188866615295,
+        "over_linked": null
+      },
+      {
+        "groups": 6322,
+        "largest_group_share": 0.07664545454545454,
+        "limit": 0.7586531639099121,
+        "over_linked": null
+      },
+      {
+        "groups": 3061,
+        "largest_group_share": 0.11457272727272727,
+        "limit": 0.7214081883430481,
+        "over_linked": null
+      },
+      {
+        "groups": 1322,
+        "largest_group_share": 0.21473636363636364,
+        "limit": 0.6784154772758484,
+        "over_linked": "the largest group has 21.5% of the images"
+      }
+    ],
+    "chosen_candidate": 7,
+    "d_near": 0.10201901197433472,
+    "d_rand": 1.01369924005121,
+    "max_group_share": 0.2,
+    "neighbours": 100
+  },
+  "seed": 0
+}

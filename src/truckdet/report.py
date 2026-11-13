@@ -401,10 +401,15 @@ def render(numbers: dict, context: dict) -> str:
                      f"{d['seed_pairs_in_agreement']} of {d['seed_pairs']} |")
 
     if numbers.get("image_bootstrap"):
+        by_image = numbers["image_bootstrap"]["B - D"]
+        width_groups, width_images = b_d["high"] - b_d["low"], by_image["high"] - by_image["low"]
+        # The numbers say which interval is wider; the text does not say it for them.
+        ratio = (f"The interval of the scene groups is {width_groups / width_images:.1f} times as wide as that of the "
+                 "single images. " if width_images > 0 else "")
         lines += ["", f"*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups: {_ci(b_d, signed=True)}. "
-                  f"With resamples of single images: {_ci(numbers['image_bootstrap']['B - D'], signed=True)}. Frames of "
-                  "one camera are not independent, so the image interval is too narrow. All other intervals and all "
-                  "readings of this report use the scene groups."]
+                  f"With resamples of single images: {_ci(by_image, signed=True)}. {ratio}Frames of one scene group are "
+                  "not independent, so resamples of single images can give an interval that is too narrow. All other "
+                  "intervals and all readings of this report use the scene groups."]
 
     lines += ["", "## Error split: boxes and labels", "",
               "Candidates: the 50 queries of an image with the highest class score. A ground-truth box is localized "

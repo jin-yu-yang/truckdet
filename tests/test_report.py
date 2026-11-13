@@ -140,6 +140,11 @@ def test_render_handles_missing_classes_and_shows_the_outcomes():
     with_split = report.render({**numbers, "image_bootstrap": {"B - D": {"value": 0.12, "low": 0.11, "high": 0.13}}},
                                {**context, **split})
     assert "resamples of the 41 scene groups of the split" in with_split and "With resamples of single images: +0.120 [+0.110, +0.130]" in with_split
+    # the text gives the two widths as a ratio and does not say which is wider before the numbers do
+    group_ci = numbers["differences"]["B - D"]
+    ratio = (group_ci["high"] - group_ci["low"]) / 0.02
+    assert f"The interval of the scene groups is {ratio:.1f} times as wide as that of the single images." in with_split
+    assert "the image interval is too narrow" not in with_split
     head = with_split[: with_split.index("## Results")]
     assert ("*The scope of the answer.* The test images have no near image in the training data: no training image has "
             "a similarity of 0.9753 or more to a test image. The cameras are not separated. For 60 of 100 test images") in head

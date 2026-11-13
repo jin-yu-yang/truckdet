@@ -27,10 +27,12 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | The scripts `make_split.py` and `spike.py --image-dir` | The same stand-in images, real backbone, CPU | They run; the sheets look right |
 | Stages 2 to 4 (`evaluate.py --start-model`, `overfit_check.py`): stage `checks` of the notebook | MIO-TCD, Colab T4, fp16 | **All passed** (§15). The start model on the val split: AP50 0.77 for `car` and 0.85 for `bus`. On 16 images, arm F reaches AP50 1.000, the loss of H, D and B decreases, and a stopped run resumes |
 | Stage 5: the learning-rate runs of H and F, and the gate: stage `gate` of the notebook | MIO-TCD, Colab T4, fp16 | **The gate passes** (§16): AP_F − AP_H = +0.172 on the val split, 12.0 times its standard error. 8 runs of 12 epochs, each with 0 skipped batches. H chose the rate 1e-3; F chose 1e-5 for the body |
-| **Not run:** a run of D or of B, seeds 1 and 2, the test split and the report | | Stages `main` and `report` of the notebook. The scripts ran in the tests, on the tiny model |
+| Stage 6: the learning-rate runs of D and B, and seeds 1 and 2 of the four arms: stage `main` of the notebook | MIO-TCD, Colab T4, fp16 | **Finished** (§17): 16 runs. D and B chose the rate 1e-3. The 8 runs of seeds 1 and 2 have 0 skipped batches and a merge difference of 6e-14 or less. A run that a disconnect stopped went on from its last epoch |
+| **Not run:** the test split and the report | | Stage `report` of the notebook. The report ran here on 12 invented runs of the real size (§17) |
 
 The split is accepted (§13), the label check passes with the count of clear objects (§14), and
-stages 2 to 4 passed on MIO-TCD (§15). The gate passed (§16). The next stage is `main`.
+stages 2 to 4 passed on MIO-TCD (§15). The gate passed (§16), and the 24 training runs are finished
+(§17). The next stage is `report`: the test split, one time for each of the 12 final checkpoints.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -893,3 +895,117 @@ of the four arms (2 × 7.2 = 14.4 hours): about 25 hours. A fourth run of D adds
 fourth run of B adds 2.1 hours, so 29 hours at most. The intro of the notebook has these times
 now. The rule of design §10 for a total that is too large (a smaller train subset for all arms) is
 not used: the 8 runs of H and F would need a new run each.
+
+## 17. Stage 6 on MIO-TCD: the learning rates of D and B, and seeds 1 and 2
+
+Stage `main` of the notebook at commit `d6ecfd3`, 2026-11-11 to 2026-11-13, on the T4 with fp16. It
+took about 29.5 hours, in more than one session. The notebook holds the output of the last session
+only: the finished runs pass with one line each, and one run of F goes on from epoch 6. All numbers
+here are on the val split. They are for the choices. They are not readings: P1, P2 and P3 are read
+on the test split, in stage `report`.
+
+**Arm D: LoRA in the decoder (seed 0).**
+
+| Learning rate | Val AP | |
+|---|---|---|
+| 1e-4 | 0.3546 | |
+| 3e-4 | 0.3886 | |
+| **1e-3** | **0.4079** | chosen |
+| 3e-3 | 0.4078 | added by the rule |
+
+**Arm B: LoRA in the backbone (seed 0).**
+
+| Learning rate | Val AP | |
+|---|---|---|
+| 1e-4 | 0.4539 | |
+| 3e-4 | 0.4860 | |
+| **1e-3** | **0.4944** | chosen |
+| 3e-3 | 0.4398 | added by the rule |
+
+For each arm the best of the three rates of the design was 1e-3, at the end of the list, so the
+rule of design §6 added 3e-3, and 1e-3 stayed the best. For D the two are equal to 3 decimal places
+(0.40785 and 0.40779); the tie rule gives the lower rate, which is the same choice. So H, D and B
+all use 1e-3, and each of the four arms had one added rate: 16 learning-rate runs, not the 12 of
+the design, and 24 runs in all with the 8 runs of seeds 1 and 2.
+
+**The 12 final runs on the val split.**
+
+| Arm | Seed 0 | Seed 1 | Seed 2 | Mean |
+|---|---|---|---|---|
+| H | 0.3497 | 0.3508 | 0.3490 | 0.350 |
+| D | 0.4079 | 0.4044 | 0.4065 | 0.406 |
+| B | 0.4944 | 0.4883 | 0.4939 | 0.492 |
+| F | 0.5213 | 0.5198 | 0.5207 | 0.521 |
+
+The seeds of an arm are within 0.006 of each other. This table is not a reading. The val split is
+small and different from the test split (design §11), and it was used for the choices.
+
+**The checks of stage 6: "each run ends with no skipped step; each LoRA checkpoint passes the merge
+check".**
+
+| Run | Batches with a loss that is not finite | Merge difference (limit 1e-4) | Steps the fp16 scaler skipped |
+|---|---|---|---|
+| H, seeds 1 and 2 | 0, 0 | 0 (no adapters) | 4, 4 |
+| D, seeds 1 and 2 | 0, 0 | 2.3e-14, 1.6e-14 | 4, 4 |
+| B, seeds 1 and 2 | 0, 0 | 6.2e-14, 1.5e-14 | 6, 6 |
+| F, seeds 1 and 2 | 0, 0 | 0 (no adapters) | 10, 9 |
+
+- **Seen:** the 8 runs of seeds 1 and 2, above. The 8 runs of H and F with seed 0 are in §16.
+- **Not seen in this notebook:** the 8 learning-rate runs of D and B. Their lines were in the output
+  of the earlier sessions. Two of them are final runs (`d_lr1e-3_s0` and `b_lr1e-3_s0`). Stage
+  `report` prints the merge difference and the skipped batches of each of the 12 final checkpoints
+  and stops on a bad one, and the report has them in its check table. So the check of these two is
+  complete after stage `report`.
+
+**A real disconnect, and the resume.** `f_lr1e-5_h1e-3_s2` stopped after epoch 5 and went on in a new
+session.
+
+| Epoch | 6 | 7 | 8 | 9 | 10 | 11 | Val AP |
+|---|---|---|---|---|---|---|---|
+| Seed 2, after the resume | 3.684 | 3.578 | 3.443 | 3.340 | 3.294 | 3.260 | 0.5207 |
+| Seed 0, with no stop (§16) | 3.708 | 3.557 | 3.435 | 3.348 | 3.287 | 3.254 | 0.5213 |
+
+The learning rate of the first batch after the resume is 5.41e-4, the value of the schedule at step
+3,000. The loss of each epoch and the val AP are as those of the run with no stop. So the open point
+of §15 (a short disturbance at a resume, or noise) has no effect that a full run shows.
+
+**The dataset was downloaded again in the last session.** The copy on Drive
+(`MyDrive/truckdet/MIO-TCD-Localization.tar`) was not there, so the notebook downloaded the file and
+copied it to Drive again. The file has the size of the first download (3,739,303,424 bytes), and
+the dataset cell found an image for each image ID of the CSV. The annotations and the split files
+did not change: they come from the cache on Drive and from the repository.
+
+**The time.** The estimate of §16 was 25 hours, and 29 hours with a fourth rate for D and for B. Both
+had a fourth rate, and the stage took about 29.5 hours. The notebook has no epoch lines of D and B,
+so their speed is not measured here; F ran at 11.7 images per second, as in stage `gate`. The 24
+runs used about 44 hours of the T4 in all.
+
+**A rehearsal of stage `report` at the real size.** The report had run on the tiny model only, and
+stage `report` reads the test split one time. So the report script ran here first, on 12 invented
+runs: the 10,001 image IDs of `splits/test.txt`, the real scene groups and measurement files, the
+real `selection.json` of the 16 learning-rate runs, 33,600 invented boxes with the class counts of
+the split, and invented predictions of 100 queries for each image. The numbers of that report mean
+nothing, and its files are not kept.
+
+- `scripts/analyse.py` with 400 resamples ended with no error and wrote the report, the numbers and
+  the figure. Each section has its content: the scope of the answer, the differences, the error
+  split, the four confusion tables, the learning rates of the four arms, the gate, the check table
+  and the limits with the composition table.
+- **Time:** 28 minutes for the 12 runs on a laptop CPU (38 seconds for a run with no resample, and
+  0.15 seconds for one resample of the scene groups). The CPU of Colab is slower, so expect 1 to
+  1.5 hours for the analysis, after the predictions of the 12 checkpoints on the test split. The
+  intro of the notebook now says 2 to 3 hours for stage `report`, not 1.
+- **Memory:** 2.9 GB at most. A prediction file of the test split has 60 MB, so the 12 files are
+  0.7 GB on Drive.
+- **A disconnect in stage `report`** is safe: `evaluate.py --final-runs` scores only the checkpoints
+  that have no `eval_test.json`, and the analysis reads the saved predictions.
+
+**One sentence of the report was changed before the test split is read.** The line "The unit of the
+bootstrap" said "the image interval is too narrow" for each result. In the rehearsal the image
+interval was the wider of the two (the invented predictions are independent between images), so the
+sentence was false there. The report now gives the ratio of the two widths and says that resamples
+of single images *can* give an interval that is too narrow. The numbers say which is wider.
+
+**A text of the notebook was wrong.** The closing text of stage `main` said "All 20 runs". There are
+24: each arm had one added rate. The text has no count now.
+

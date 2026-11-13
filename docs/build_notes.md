@@ -21,7 +21,7 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split was not accepted then. Design change 2 accepts it with its scene measurement (§13) |
 | Design change 2: the split of the fourth run is the split of the project (§13) | The split files of the repository, CPU | The seven files have the hashes of the change, and its numbers agree with the files. The report gives the scope of the answer and the new limits |
 | Label completeness (stage 1), with the decision of §14 | A person, 100 random images of MIO-TCD | **Passed:** 2.0% of the clear objects have no box (the limit is 5%). About 10.5% with the objects that a person can only guess; this count goes in the report |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 164 passed |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 165 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -30,12 +30,13 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 5: the learning-rate runs of H and F, and the gate: stage `gate` of the notebook | MIO-TCD, Colab T4, fp16 | **The gate passes** (§16): AP_F − AP_H = +0.172 on the val split, 12.0 times its standard error. 8 runs of 12 epochs, each with 0 skipped batches. H chose the rate 1e-3; F chose 1e-5 for the body |
 | Stage 6: the learning-rate runs of D and B, and seeds 1 and 2 of the four arms: stage `main` of the notebook | MIO-TCD, Colab T4, fp16 | **Finished** (§17): 16 runs. D and B chose the rate 1e-3. The 8 runs of seeds 1 and 2 have 0 skipped batches and a merge difference of 6e-14 or less. A run that a disconnect stopped went on from its last epoch |
 | Stages 7 and 8: the test split and the report: stage `report` of the notebook | MIO-TCD, Colab T4, fp16 | **Finished** (§18): P1 confirmed, P2 refuted, P3 confirmed. The test split was scored for the 12 final checkpoints only; each has 0 skipped batches and a merge difference of 1.1e-13 at most. The results are in `results/` |
-| **Not run:** a second run of the report | | The check of stage 7: "the same text on a second run". It ran on the tiny model only (§18) |
+| A second run of the report: stage `report` of the notebook again | MIO-TCD, Colab | **Passed** (§19): `numbers.json` is the file of the first run, byte for byte, and the test split was not scored again. The report is the render of those numbers with the code of `1872d01` |
 
 The split is accepted (§13), the label check passes with the count of clear objects (§14), and
 stages 2 to 4 passed on MIO-TCD (§15). The gate passed (§16), and the 24 training runs are finished
 (§17). The test split is scored and the report is written (§18): P1 and P3 are confirmed, and P2 is
-refuted. One check is open: a second run of the report.
+refuted. A second run of the report gave the same numbers, byte for byte (§19). Each stage of design
+§9 has run on MIO-TCD.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -1093,7 +1094,8 @@ The rules of design §2 give these outcomes from the intervals of `numbers.json`
   Colab run, with one difference: the sentence on the unit of the bootstrap. The report of the
   Colab run says "Frames of one camera are not independent, so the image interval is too narrow".
   That is true for these numbers. The code of `58dfd8e` gives the ratio (2.7) in its place.
-- `results/report.md` is the file of the Colab run, with no change.
+- `results/report.md` was the file of this run, with no change. It is the file of the second run
+  now (§19).
 - **Found in this comparison:** the table "Differences in AP" took the order of its rows from the
   order of the keys. `numbers.json` has its keys in the order of the alphabet, so a render from the
   file had another row order than the render of the run. The report has a fixed order now
@@ -1102,9 +1104,10 @@ The rules of design §2 give these outcomes from the intervals of `numbers.json`
   `MyDrive/truckdet/results/samples`. They hold dataset images (CC BY-NC-SA 4.0), and `.gitignore`
   keeps `results/samples/` out of the repository. So the links of the report have no file here.
 
-**Open: "the same text from the saved predictions on a second run"** (the check of stage 7). The
-tests do this on the tiny model, with the cache and with no cache. It is not done on MIO-TCD. A
-second run of stage `report` does not score the test split again: each final run has its
+**Open then: "the same text from the saved predictions on a second run"** (the check of stage 7;
+done in §19). The tests do this on the tiny model, with the cache and with no cache. It was not done
+on MIO-TCD then. A second run of stage `report` does not score the test split again: each final run
+has its
 `eval_test.json`. The analysis reads its cache, so the run takes minutes and not an hour. The key
 of the cache has the hash of the prediction file and of the resamples, so the cache is used only if
 the two are the same. Two checks for that run:
@@ -1142,8 +1145,51 @@ the 3 seeds).
   above that of D.
 - The prediction, the rule and the outcome have no change. The report and design §11 have a limit
   for this now: "Label accuracy and AP measure different things". The report gives the order of the
-  arms by each of the two numbers, for each result. The report of the Colab run in `results/` is
-  from before this limit; a second run of stage `report` writes it.
+  arms by each of the two numbers, for each result. The report of the first run is from before
+  this limit. The report of the second run has it (§19).
 - A possible analysis, not built: label accuracy with the candidate of the highest score as the
   representative query. It needs the saved predictions and no training. It would come after the
   results, so it would be a description and not a reading.
+
+## 19. The second run of the report
+
+Stage `report` of the notebook again, 2026-11-13, on the code of `1872d01`. I have the bundle of the
+second run and the 8 sample images, and no notebook. So each check here is from the files.
+
+**The check of stage 7: "the report script gives the same text from the saved predictions on a
+second run".**
+
+| Check | Result |
+|---|---|
+| `numbers.json` of the second run against that of the first run | The same file, byte for byte (SHA-256 `e8c3b917db00265e…`) |
+| The 12 files `eval_test.json` | The files of the first run, byte for byte, with the times of the first run: the test split was not scored again |
+| All other files of `results/` (the figure, `selection.json`, `gate.json`, the files of the 25 run folders) and the split files | The same, byte for byte: 113 of the 114 files of `results/`. The report is the one file that differs |
+| The report of the second run against the report of the first run | Two places differ, and no number: the sentence on the unit of the bootstrap, and the limit "Label accuracy and AP measure different things". The code changed these two after the first run (§17, §18) |
+| The report of the second run against the render of §18 | The same text, byte for byte. I made that render here from the `numbers.json` of the first run, with the same code, before the second run |
+
+So the check passes. The text of the two runs differs only where the code changed, and the last
+row shows that the code gives the text of the second run from the numbers of the first run.
+
+**What the check shows, and what it does not.** By the times of the files, the analysis took about
+5 minutes. So it read its cache. The key of the cache has the hash of each prediction file and of
+the resamples, so the second run had the same predictions and the same resamples. It did not
+calculate the bootstrap again from the predictions: that needs `--no-cache` and about one hour. The
+tests do that on the tiny model.
+
+**`results/report.md` is the report of the second run now.** It has the ratio of the two intervals
+(2.7) and the limit on label accuracy. `tests/test_results.py` checks the two.
+
+**The sample images.** The 8 files have the names of the 8 links of the report. Each is 1,280 × 992
+pixels and has four panels, one for each arm: the ground truth in white with its class, and the
+detections of the arm with a score of 0.5 or more, in the colour of the arm. I looked at 2 of the 8
+(`00001992` and `00034773`); they are as the report says. In `00034773`, arm H gives `car` to a
+pickup truck, and arms D, B and F give `pickup_truck`.
+
+- The files are in `results/samples/` on this computer, so the links of the report work here.
+- They are not in the repository: `.gitignore` keeps that folder out. They hold dataset images
+  (CC BY-NC-SA 4.0), and design §11 says to publish the code and the split lists and to read the
+  licence before images are published.
+
+**What is not built.** The second test set `test_seen` (design §12, optional). The analysis of
+label accuracy with the candidate of the highest score (§18), which would be a description and not
+a reading.

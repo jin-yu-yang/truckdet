@@ -161,3 +161,14 @@ def test_the_limit_of_label_accuracy_gives_the_two_orders(numbers):
     assert limit.startswith("- **Label accuracy and AP measure different things.** In the truck family, the order "
                             "of the arms by AP is F, B, D, H, and the order by label accuracy is D, B, H, F. ")
     assert limit.endswith("It does not show where the AP advantage of an arm comes from.")
+
+
+def test_the_report_is_that_of_the_second_run(numbers):
+    """The second run of stage `report` used the code with two changes of text (build notes §19)."""
+    text = (RESULTS / "report.md").read_text()
+    (limit,) = report._label_accuracy_limit(numbers)
+    assert limit in text.split("\n## Limits\n")[1].splitlines()
+    b_d, by_image = numbers["differences"]["B - D"], numbers["image_bootstrap"]["B - D"]
+    ratio = (b_d["high"] - b_d["low"]) / (by_image["high"] - by_image["low"])
+    assert f"The interval of the scene groups is {ratio:.1f} times as wide as that of the single images." in text
+    assert "the image interval is too narrow" not in text

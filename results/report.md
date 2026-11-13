@@ -37,7 +37,7 @@ Recovered share of an arm X: (AP_X − AP_H) / (AP_F − AP_H). Decoder: 0.307 [
 | F − H | +0.152 [+0.124, +0.178] | 9 of 9 |
 | F − B | +0.022 [+0.014, +0.030] | 9 of 9 |
 
-*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups: +0.083 [+0.064, +0.099]. With resamples of single images: +0.083 [+0.077, +0.090]. Frames of one camera are not independent, so the image interval is too narrow. All other intervals and all readings of this report use the scene groups.
+*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups: +0.083 [+0.064, +0.099]. With resamples of single images: +0.083 [+0.077, +0.090]. The interval of the scene groups is 2.7 times as wide as that of the single images. Frames of one scene group are not independent, so resamples of single images can give an interval that is too narrow. All other intervals and all readings of this report use the scene groups.
 
 ## Error split: boxes and labels
 
@@ -191,6 +191,7 @@ White: ground truth. Colour: detections with a score of 0.5 or more, by arm (see
 - **A few groups give most of the test split.** 22 groups are at the cap of 300 and give 6,600 of the 10,001 images. One group can hold more than one camera: 50 images of the largest group show 5 cameras.
 - **The limit is the result of one rule.** The search for the limit stops when the largest group has more than 20% of the images, and this rule set 0.7214. The 20% is a choice. No other limit was tried.
 - **Some objects have no box.** On 100 random images with 297 boxes, a person found 6 clear objects with no box: 2.0% of the clear objects (the limit of the label check is 5%). A clear object is fully visible, and it moves or is on the road. With the objects that a person can only guess (tiny, occluded or blurred vehicles, and lights at night), about 35 objects have no box: about 10.5%. A detection on an object with no box is a false positive, for each arm.
+- **Label accuracy and AP measure different things.** In the truck family, the order of the arms by AP is F, B, D, H, and the order by label accuracy is D, B, H, F. Label accuracy reads one query for each box (the candidate with the highest IoU) and only the top class of that query. AP ranks the detections of each class separately, from the 100 best (query, class) pairs of an image. So a box can be a true positive of its class when the correct class is the second class of its representative query, or when another query at the same box has the correct class. A top class of `motorized_vehicle` costs label accuracy and costs no AP. So the outcome of P2 is for label accuracy as this report defines it. It does not show where the AP advantage of an arm comes from.
 - **The intervals show the dependence on the scene groups of the test split.** They do not show the variance between seeds; the tables give the 3 seed values and the seed pairs for that.
 - **Not a leaderboard number.** The public MIO-TCD leaderboard uses another split, all the training data and another protocol. Its numbers and these numbers are not a comparison.
 - **The library port.** Numbers can be different from those of the original `rfdetr` package.

@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the experiment is finished. The 24 training runs and the test split ran on a Colab T4, and the results are [below](#results) and in [results/report.md](results/report.md): P1 and P3 are confirmed, and P2 is refuted. The split is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). One check is open: a second run of the report must give the same text (`docs/build_notes.md` §18).
+> **Status:** the experiment is finished. The 24 training runs and the test split ran on a Colab T4, and the results are [below](#results) and in [results/report.md](results/report.md): P1 and P3 are confirmed, and P2 is refuted. The split is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). A second run of the report gave the same numbers, byte for byte (`docs/build_notes.md` §19).
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 

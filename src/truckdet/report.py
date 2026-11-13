@@ -345,6 +345,28 @@ def _label_limit(measurement: dict) -> list[str]:
     return [text + " A detection on an object with no box is a false positive, for each arm."]
 
 
+def _label_accuracy_limit(numbers: dict) -> list[str]:
+    """Label accuracy (design §7.2) reads the top class of one query for each box, and AP does not. The limit
+    gives the order of the arms by each of the two numbers, so the reader sees if they agree."""
+    family = numbers["errors"]["truck family"]
+    ap = {arm: numbers["arms"][arm]["metrics"]["AP truck family"]["value"] for arm in ARMS}
+    accuracy = {arm: family[arm]["label accuracy"]["value"] for arm in ARMS}
+
+    def order(values: dict) -> str:  # the arms, from the highest value to the lowest
+        return ", ".join(sorted(values, key=values.get, reverse=True))
+
+    known = all(v is not None and math.isfinite(v) for v in (*ap.values(), *accuracy.values()))
+    orders = (f"In the truck family, the order of the arms by AP is {order(ap)}, and the order by label accuracy is "
+              f"{order(accuracy)}. " if known else "")
+    return ["- **Label accuracy and AP measure different things.** " + orders + "Label accuracy reads one query for "
+            "each box (the candidate with the highest IoU) and only the top class of that query. AP ranks the "
+            "detections of each class separately, from the 100 best (query, class) pairs of an image. So a box can "
+            "be a true positive of its class when the correct class is the second class of its representative "
+            "query, or when another query at the same box has the correct class. A top class of "
+            f"`{MOTORIZED_VEHICLE}` costs label accuracy and costs no AP. So the outcome of P2 is for label "
+            "accuracy as this report defines it. It does not show where the AP advantage of an arm comes from."]
+
+
 def render(numbers: dict, context: dict) -> str:
     """The report as markdown. `context`: images, groups (scene groups of the split), seeds, n_boot, split,
     trainable (arm -> parameters), selection, gate, figure (file name or None), samples (file names),
@@ -514,6 +536,7 @@ def render(numbers: dict, context: dict) -> str:
               f"more than 20% of the images, and this rule set {_limit(split_meta.get('limit'))}. The 20% is a choice. "
               "No other limit was tried.",
               *_label_limit(context.get("label_measurement") or {}),
+              *_label_accuracy_limit(numbers),
               "- **The intervals show the dependence on the scene groups of the test split.** They do not show the "
               f"variance between seeds; the tables give the {n_seeds} seed values and the seed pairs for that.",
               "- **Not a leaderboard number.** The public MIO-TCD leaderboard uses another split, all the training "

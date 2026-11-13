@@ -153,3 +153,11 @@ def test_the_readme_gives_the_outcomes_of_the_report(numbers):
     for arm in ("D", "B"):
         assert report._ci(numbers["recovered_share"][arm]) in results, arm
     assert "To come" not in text
+
+
+def test_the_limit_of_label_accuracy_gives_the_two_orders(numbers):
+    """The outcome of P2 is read with label accuracy, and label accuracy does not follow AP on this data."""
+    (limit,) = report._label_accuracy_limit(numbers)
+    assert limit.startswith("- **Label accuracy and AP measure different things.** In the truck family, the order "
+                            "of the arms by AP is F, B, D, H, and the order by label accuracy is D, B, H, F. ")
+    assert limit.endswith("It does not show where the AP advantage of an arm comes from.")

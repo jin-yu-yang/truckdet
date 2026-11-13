@@ -3,6 +3,7 @@
 What the build confirmed, corrected and decided. The design is `docs/design.md`. It was changed two times. Change 1
 (2026-11-10: §4.3, §4.5, §7.3 and §11; §9 below) came after the scene check failed with k-means. Change 2
 (2026-11-10: §3, §4.3, §4.5, §11 and §12; §13 below) accepts the split of the fourth run.
+A limit came with the results (2026-11-13: §11; §18 below); no prediction, rule or outcome changed.
 Each item gives the section of the design and the place in the code.
 
 Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Roboflow/rf-detr-base`.
@@ -20,7 +21,7 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split was not accepted then. Design change 2 accepts it with its scene measurement (§13) |
 | Design change 2: the split of the fourth run is the split of the project (§13) | The split files of the repository, CPU | The seven files have the hashes of the change, and its numbers agree with the files. The report gives the scope of the answer and the new limits |
 | Label completeness (stage 1), with the decision of §14 | A person, 100 random images of MIO-TCD | **Passed:** 2.0% of the clear objects have no box (the limit is 5%). About 10.5% with the objects that a person can only guess; this count goes in the report |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 162 passed |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 164 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -1139,8 +1140,10 @@ the 3 seeds).
   more often than D. It does not show where the AP advantage of the backbone comes from. The
   localized share is the same for the two arms (97.4% and 97.5%), and the box AP of B is 0.038
   above that of D.
-- The prediction, the rule and the outcome have no change. The report and design §11 get a limit
-  for this.
+- The prediction, the rule and the outcome have no change. The report and design §11 have a limit
+  for this now: "Label accuracy and AP measure different things". The report gives the order of the
+  arms by each of the two numbers, for each result. The report of the Colab run in `results/` is
+  from before this limit; a second run of stage `report` writes it.
 - A possible analysis, not built: label accuracy with the candidate of the highest score as the
   representative query. It needs the saved predictions and no training. It would come after the
   results, so it would be a description and not a reading.

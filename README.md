@@ -256,6 +256,11 @@ All analysis runs on a CPU from the saved predictions of each run.
   the objects that a person can only guess (tiny, occluded or blurred
   vehicles, and lights at night). A detection on such an object is a false
   positive, for each arm.
+- Label accuracy and AP measure different things. Label accuracy reads the
+  top class of one query for each box. AP ranks the detections of each
+  class separately. On the test split the two do not give the same order of
+  the arms, so the outcome of P2 does not show where the AP advantage of the
+  backbone comes from.
 - Equal parameter counts are not equal capacity. Rank 33 is a larger share of
   a decoder matrix than rank 9 is of a backbone matrix.
 

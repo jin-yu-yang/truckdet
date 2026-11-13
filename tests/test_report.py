@@ -46,6 +46,7 @@ def test_report_end_to_end_and_the_same_on_a_second_run(runs_root, data_root, sp
     assert "6 images" in text and "mean of 2 seeds (0, 1)" in text
     assert "20 paired bootstrap resamples of the 3 scene groups of the split" in text
     assert "*The unit of the bootstrap.* AP_B − AP_D with resamples of scene groups:" in text
+    assert "- **Label accuracy and AP measure different things.**" in text.split("## Limits")[1]
     assert "With resamples of single images:" in text
     # the composition of the splits, from the split files: each group of the fixture has 2 images
     assert "| Share of the images that come from | Dataset | Train subset | Test | Val |" in text
@@ -191,3 +192,16 @@ def test_split_composition_and_the_interval_of_a_count(tmp_path):
     low, high = report.wilson_interval(60, 100)
     assert (low, high) == pytest.approx((0.5020, 0.6906), abs=1e-4)
     assert report.wilson_interval(0, 50)[0] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_the_limit_of_label_accuracy_has_the_orders_only_if_the_numbers_exist():
+    def numbers(ap: dict, accuracy: dict) -> dict:
+        return {"arms": {arm: {"metrics": {"AP truck family": {"value": ap[arm]}}} for arm in "HDBF"},
+                "errors": {"truck family": {arm: {"label accuracy": {"value": accuracy[arm]}} for arm in "HDBF"}}}
+
+    rising = {"H": 0.1, "D": 0.2, "B": 0.3, "F": 0.4}
+    (limit,) = report._label_accuracy_limit(numbers(rising, rising))
+    assert "the order of the arms by AP is F, B, D, H, and the order by label accuracy is F, B, D, H. " in limit
+    for missing in (None, float("nan")):  # a tiny run with no localized box: the definitions stay, the orders go
+        (limit,) = report._label_accuracy_limit(numbers(rising, {**rising, "B": missing}))
+        assert "the order of the arms" not in limit and "Label accuracy reads one query for each box" in limit

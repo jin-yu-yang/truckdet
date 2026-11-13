@@ -3,7 +3,7 @@
 **Where must LoRA go in a detector: the backbone or the decoder?**
 A controlled test on truck types in traffic-camera images.
 
-> **Status:** the code is complete and tested on a CPU. Stage 0 (the model checks and the speed) passed on a Colab T4. Stage 1 (data and split) is finished: the counts and the class counts pass, and the split of the project is in [splits/](splits/README.md). It is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). The label check passes: 2.0% of the clear objects have no box. Stages 2 to 4 (the checks before a real run) passed on MIO-TCD: the start model scores AP50 0.77 on `car` and 0.85 on `bus` with no training, and the training loop fits 16 images. The gate passed (stage 5): on the val split, full fine-tuning is 0.172 AP above heads-only training (0.521 against 0.350, seed 0), 12 times the standard error. The main runs are finished (stage 6): 24 training runs, with three seeds of each arm at its chosen learning rate. The next stage scores the test split, one time for each of the 12 final models, and writes the report. No results on the question yet.
+> **Status:** the experiment is finished. The 24 training runs and the test split ran on a Colab T4, and the results are [below](#results) and in [results/report.md](results/report.md): P1 and P3 are confirmed, and P2 is refuted. The split is not a camera split: three methods failed to separate the cameras, so the answer is for test images that have no near image in the training data, not for new cameras (`docs/build_notes.md` §12 and §13). One check is open: a second run of the report must give the same text (`docs/build_notes.md` §18).
 > The design is in [docs/design.md](docs/design.md); what the build confirmed and corrected is in
 > [docs/build_notes.md](docs/build_notes.md).
 
@@ -114,14 +114,58 @@ project stops there.
 
 ## Results
 
-*To come.* The report will give:
+Test split: 10,001 images in 1,096 scene groups, scored one time for each of
+the 12 final models. A number of an arm is the mean of 3 seeds. An interval
+is the 95% range of 400 paired bootstrap resamples of the scene groups. The
+full report is [results/report.md](results/report.md), and its numbers are in
+[results/numbers.json](results/numbers.json).
 
-- AP for each arm and seed, with 95% intervals
-- the recovered share of arms B and D
-- the outcome of P1, P2 and P3, in the words "confirmed", "refuted" or
-  "not shown"
-- the error split (boxes and labels) and the confusion table of the truck
-  classes
+| | Prediction | Outcome | Evidence (test split, 95% interval) |
+|---|---|---|---|
+| P1 | LoRA in the backbone is better than LoRA in the decoder. | **confirmed** | AP_B − AP_D = +0.083 [+0.064, +0.099] |
+| P2 | The advantage of the backbone is in the labels, not in the boxes. | **refuted** | Truck family, B − D: label accuracy -7.1% [-11.6, -3.2] points; localized share -0.1% [-1.0, +0.9] points |
+| P3 | LoRA in the backbone recovers most of the full fine-tuning gain. | **confirmed** | Recovered share of B = 0.857 [0.799, 0.904]; the line is 0.667 |
+
+| Arm | Trainable parameters | AP [95% interval] | AP by seed | Recovered share [95% interval] |
+|---|---|---|---|---|
+| H: heads only | 1,896,146 | 0.350 [0.325, 0.374] | 0.351 / 0.350 / 0.348 | 0 (by definition) |
+| D: LoRA in the decoder | 2,048,210 | 0.397 [0.372, 0.426] | 0.395 / 0.397 / 0.398 | 0.307 [0.230, 0.382] |
+| B: LoRA in the backbone | 2,048,210 | 0.480 [0.450, 0.508] | 0.485 / 0.473 / 0.482 | 0.857 [0.799, 0.904] |
+| F: full fine-tuning | 31,886,690 | 0.502 [0.472, 0.532] | 0.499 / 0.501 / 0.505 | 1 (by definition) |
+
+![Recovered share by adapter position](results/recovered_share.png)
+
+**The answer.** With the same 152,064 adapter parameters, LoRA in the
+backbone recovers 0.857 of the full fine-tuning gain, and LoRA in the decoder
+recovers 0.307. The backbone arm is 0.083 AP above the decoder arm, and the
+difference has the same sign in 9 of 9 seed pairs. Full fine-tuning is
+0.022 AP [0.014, 0.030] above LoRA in the backbone.
+
+**P2 is refuted, and the report does not show where the advantage is.**
+
+- The two arms find the same share of the boxes. In the truck family, B
+  localizes 97.4% of the boxes and D localizes 97.5%.
+- Label accuracy is lower for B (39.4%) than for D (46.5%).
+- But label accuracy does not follow AP. Full fine-tuning has the highest AP
+  of the truck family (0.500) and the lowest label accuracy (34.4%). For 50%
+  of the truck-family boxes, its top class is `car`. For 12% of them, the top
+  class of B is `motorized_vehicle`.
+- The two numbers measure different things. Label accuracy reads one query
+  for each box (the candidate with the highest IoU) and only its top class.
+  AP ranks the detections of each class separately, so a second class of the
+  same query, or a second query at the same box, can be the true positive.
+- Box AP (all classes as one class) is 0.637 for B and 0.599 for D.
+
+So the outcome of P2 is for label accuracy as the design defines it. It is
+not a measurement of where the AP advantage of the backbone comes from.
+
+**Read the result with its limits.** The cameras are not separated, and the
+test images were selected with the features of the frozen backbone. Both are
+possibly to the advantage of the backbone arms, so a confirmed P1 is the
+weaker result. The list is in [Limits](#limits).
+
+The sample images of the report are not in the repository. They hold dataset
+images (CC BY-NC-SA 4.0).
 
 ## Run it
 

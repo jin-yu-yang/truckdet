@@ -1,0 +1,41 @@
+{
+  "AP": 0.498733463211984,
+  "AP 11 classes, no ignore regions": 0.4700055550387143,
+  "AP motorized_vehicle": 0.22477539419941403,
+  "AP small": 0.17649307702237516,
+  "AP truck family": 0.5063238139410727,
+  "AP50": 0.6631460264031622,
+  "AP75": 0.5541300911850621,
+  "arm": "F",
+  "box AP": 0.6574053419866088,
+  "box AP50": 0.9020350055527284,
+  "errors": {
+    "specific classes": {
+      "label accuracy": 0.8341750841750841,
+      "localized share": 0.9753374273422876
+    },
+    "truck family": {
+      "label accuracy": 0.36112839659821616,
+      "localized share": 0.9755159854309996
+    }
+  },
+  "images": 10001,
+  "merge_max_abs_diff": 0.0,
+  "per_class": {
+    "articulated_truck": 0.6106249850233495,
+    "bicycle": 0.5104588408759761,
+    "bus": 0.913315762228868,
+    "car": 0.6378229591111334,
+    "motorcycle": 0.4769479883132545,
+    "non-motorized_vehicle": 0.12728053149092317,
+    "pedestrian": 0.2962132943353933,
+    "pickup_truck": 0.5596409194398616,
+    "single_unit_truck": 0.33782129100437785,
+    "work_van": 0.5172080602967019
+  },
+  "run": "f_lr1e-5_h1e-3_s0",
+  "scaler_skips": 10,
+  "seed": 0,
+  "skipped_batches": 0,
+  "split": "test"
+}

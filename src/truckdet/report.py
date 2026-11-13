@@ -39,6 +39,7 @@ from .runs import (
 # Bump when the analysis code changes what it calculates: the cache key covers files, not code.
 ANALYSIS_VERSION = "2"
 ERROR_SETS = {"specific classes": SPECIFIC_CLASSES, "truck family": TRUCK_FAMILY}
+DIFFERENCES = ("B - D", "D - H", "B - H", "F - H", "F - B")  # the rows of "Differences in AP"
 # The counts of a person on the sheets of stage 1 (design §4.5): a measurement, not a pass rule.
 SCENE_MEASUREMENT = "scene_measurement.json"
 # The counts of a person on the label sheets (design §4.5): the clear objects decide the label check.
@@ -185,7 +186,7 @@ def build_numbers(analyses: dict[str, list[RunAnalysis]]) -> dict:
                 for predicted, n in counts.items():
                     confusion[arm][c][predicted] = confusion[arm][c].get(predicted, 0) + n
 
-    differences = {f"{a} - {b}": difference(a, b) for a, b in (("B", "D"), ("D", "H"), ("B", "H"), ("F", "H"), ("F", "B"))}
+    differences = {name: difference(*name.split(" - ")) for name in DIFFERENCES}
     family = errors["truck family"]["B - D"]
     p1 = differences["B - D"]
     readings = {
@@ -396,7 +397,8 @@ def render(numbers: dict, context: dict) -> str:
         lines += ["", f"![Recovered share by adapter position]({context['figure']})"]
     lines += ["", "### Differences in AP", "",
               "| Difference | Value [95% interval] | Seed pairs that agree in sign with it |", "|---|---|---|"]
-    for name, d in numbers["differences"].items():
+    for name in DIFFERENCES:  # a fixed order: `numbers.json` has its keys in the order of the alphabet
+        d = numbers["differences"][name]
         lines.append(f"| {name.replace(' - ', ' − ')} | {_ci(d, signed=True)} | "
                      f"{d['seed_pairs_in_agreement']} of {d['seed_pairs']} |")
 

@@ -1,0 +1,17 @@
+{
+  "AP_F": 0.5213103553893219,
+  "AP_H": 0.3497130017772937,
+  "bootstrap_se": 0.014278478919185223,
+  "difference": 0.17159735361202821,
+  "min_difference": 0.05,
+  "min_ratio": 5.0,
+  "n_boot": 400,
+  "passed": true,
+  "ratio": 12.017901527414246,
+  "runs": {
+    "F": "f_lr1e-5_h1e-3_s0",
+    "H": "h_lr1e-3_s0"
+  },
+  "val_groups": 513,
+  "val_images": 2017
+}

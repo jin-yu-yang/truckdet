@@ -20,7 +20,7 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split was not accepted then. Design change 2 accepts it with its scene measurement (§13) |
 | Design change 2: the split of the fourth run is the split of the project (§13) | The split files of the repository, CPU | The seven files have the hashes of the change, and its numbers agree with the files. The report gives the scope of the answer and the new limits |
 | Label completeness (stage 1), with the decision of §14 | A person, 100 random images of MIO-TCD | **Passed:** 2.0% of the clear objects have no box (the limit is 5%). About 10.5% with the objects that a person can only guess; this count goes in the report |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU | 155 passed |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 162 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -28,11 +28,13 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stages 2 to 4 (`evaluate.py --start-model`, `overfit_check.py`): stage `checks` of the notebook | MIO-TCD, Colab T4, fp16 | **All passed** (§15). The start model on the val split: AP50 0.77 for `car` and 0.85 for `bus`. On 16 images, arm F reaches AP50 1.000, the loss of H, D and B decreases, and a stopped run resumes |
 | Stage 5: the learning-rate runs of H and F, and the gate: stage `gate` of the notebook | MIO-TCD, Colab T4, fp16 | **The gate passes** (§16): AP_F − AP_H = +0.172 on the val split, 12.0 times its standard error. 8 runs of 12 epochs, each with 0 skipped batches. H chose the rate 1e-3; F chose 1e-5 for the body |
 | Stage 6: the learning-rate runs of D and B, and seeds 1 and 2 of the four arms: stage `main` of the notebook | MIO-TCD, Colab T4, fp16 | **Finished** (§17): 16 runs. D and B chose the rate 1e-3. The 8 runs of seeds 1 and 2 have 0 skipped batches and a merge difference of 6e-14 or less. A run that a disconnect stopped went on from its last epoch |
-| **Not run:** the test split and the report | | Stage `report` of the notebook. The report ran here on 12 invented runs of the real size (§17) |
+| Stages 7 and 8: the test split and the report: stage `report` of the notebook | MIO-TCD, Colab T4, fp16 | **Finished** (§18): P1 confirmed, P2 refuted, P3 confirmed. The test split was scored for the 12 final checkpoints only; each has 0 skipped batches and a merge difference of 1.1e-13 at most. The results are in `results/` |
+| **Not run:** a second run of the report | | The check of stage 7: "the same text on a second run". It ran on the tiny model only (§18) |
 
 The split is accepted (§13), the label check passes with the count of clear objects (§14), and
 stages 2 to 4 passed on MIO-TCD (§15). The gate passed (§16), and the 24 training runs are finished
-(§17). The next stage is `report`: the test split, one time for each of the 12 final checkpoints.
+(§17). The test split is scored and the report is written (§18): P1 and P3 are confirmed, and P2 is
+refuted. One check is open: a second run of the report.
 
 ## 2. Stage 0: the numbers of design §5.1, on the real checkpoint
 
@@ -1009,3 +1011,136 @@ of single images *can* give an interval that is too narrow. The numbers say whic
 **A text of the notebook was wrong.** The closing text of stage `main` said "All 20 runs". There are
 24: each arm had one added rate. The text has no count now.
 
+## 18. Stages 7 and 8 on MIO-TCD: the test split and the report
+
+Stage `report` of the notebook, 2026-11-13, on the T4 with fp16. This time I have the results bundle
+(`results_bundle.zip`, 2.2 MB) and no notebook. So each check here is from the files of the bundle,
+and the lines that the stage printed are not seen.
+
+The files are in `results/` now: the report, `numbers.json`, the figure, `selection.json`,
+`gate.json`, and the small files of the 24 training runs and of the start model. The split files of
+the bundle are the files of `splits/`, byte for byte. `tests/test_results.py` keeps the files of
+`results/` in agreement with each other and with the README.
+
+**The code of the run.** The stage started before the fix of §17 was on `main`. The report has the
+sentence "the image interval is too narrow", which is the text of commit `d6ecfd3`. The fix changes
+one sentence and no number (see "The text of the report").
+
+**The test split was scored for the 12 final checkpoints, and for no other run.** The bundle has 12
+files `eval_test.json`, one in each final run. The 12 other training runs and the start model have
+an `eval_val.json` only. `evaluate_run` refuses a second scoring of the test split with no `--force`,
+and the notebook does not pass `--force`.
+
+| Run | Test AP | Val AP (§16, §17) | Merge difference (limit 1e-4) | Batches with a loss that is not finite | Steps the fp16 scaler skipped |
+|---|---|---|---|---|---|
+| `h_lr1e-3_s0` | 0.3514 | 0.3497 | 0 (no adapters) | 0 | 4 |
+| `h_lr1e-3_s1` | 0.3504 | 0.3508 | 0 (no adapters) | 0 | 4 |
+| `h_lr1e-3_s2` | 0.3481 | 0.3490 | 0 (no adapters) | 0 | 4 |
+| `d_lr1e-3_s0` | 0.3953 | 0.4079 | 1.3e-14 | 0 | 4 |
+| `d_lr1e-3_s1` | 0.3967 | 0.4044 | 3.6e-14 | 0 | 4 |
+| `d_lr1e-3_s2` | 0.3977 | 0.4065 | 4.0e-14 | 0 | 4 |
+| `b_lr1e-3_s0` | 0.4847 | 0.4944 | 3.8e-14 | 0 | 6 |
+| `b_lr1e-3_s1` | 0.4730 | 0.4883 | 1.1e-13 | 0 | 6 |
+| `b_lr1e-3_s2` | 0.4821 | 0.4939 | 1.5e-14 | 0 | 6 |
+| `f_lr1e-5_h1e-3_s0` | 0.4987 | 0.5213 | 0 (no adapters) | 0 | 10 |
+| `f_lr1e-5_h1e-3_s1` | 0.5014 | 0.5198 | 0 (no adapters) | 0 | 10 |
+| `f_lr1e-5_h1e-3_s2` | 0.5047 | 0.5207 | 0 (no adapters) | 0 | 9 |
+
+- Each file has 10,001 images, the split `test`, and the arm and the seed of its run folder.
+- **The check of stage 6 is complete now.** §17 did not see the two final runs `d_lr1e-3_s0` and
+  `b_lr1e-3_s0`. They have 0 skipped batches and merge differences of 1.3e-14 and 3.8e-14.
+- A merge difference here is not the number of §17 for the same run. The check uses a batch of the
+  split that is scored, and §17 had the val split.
+- The mean of the test AP is lower than the mean of the val AP by 0.000 (H), 0.010 (D), 0.012 (B)
+  and 0.019 (F). The order of the arms is the same on the two splits.
+
+**The time.** By the times of the files: the 12 checkpoints took 1 h 42 min on the test split (8.5
+minutes each), and the analysis took 59 minutes. With the pass through the finished runs, the stage
+took about 2 h 50 min. The estimate of §17 was 2 to 3 hours.
+
+**The outcomes.**
+
+| | Prediction | Outcome | Evidence (test split, 95% interval) |
+|---|---|---|---|
+| P1 | LoRA in the backbone is better than LoRA in the decoder. | **confirmed** | AP_B − AP_D = +0.083 [+0.064, +0.099] |
+| P2 | The advantage of the backbone is in the labels, not in the boxes. | **refuted** | Truck family, B − D: label accuracy −7.1 [−11.6, −3.2] points; localized share −0.1 [−1.0, +0.9] points |
+| P3 | LoRA in the backbone recovers most of the full fine-tuning gain. | **confirmed** | Recovered share of B = 0.857 [0.799, 0.904]; the line is 0.667 |
+
+The rules of design §2 give these outcomes from the intervals of `numbers.json`
+(`test_the_outcomes_follow_the_rules_of_the_design` applies `stats.reading_p1`, `reading_p2` and
+`reading_p3` again). The rules and the code of the rules are from before the first training run.
+
+| Arm | Test AP [95% interval] | Recovered share [95% interval] |
+|---|---|---|
+| H: heads only | 0.350 [0.325, 0.374] | 0 (by definition) |
+| D: LoRA in the decoder | 0.397 [0.372, 0.426] | 0.307 [0.230, 0.382] |
+| B: LoRA in the backbone | 0.480 [0.450, 0.508] | 0.857 [0.799, 0.904] |
+| F: full fine-tuning | 0.502 [0.472, 0.532] | 1 (by definition) |
+
+- The numbers of the report are those of the 12 files: the AP of each seed, the means, the five
+  differences, the two recovered shares and the error split (`test_the_numbers_are_those_of_the_runs`).
+- Each of the five differences has the same sign in 9 of 9 seed pairs.
+- **The unit of the bootstrap.** AP_B − AP_D has the interval [+0.064, +0.099] with resamples of
+  scene groups and [+0.077, +0.090] with resamples of single images. The first is 2.7 times as wide.
+  So on this data a bootstrap of images gives an interval that is too narrow, as design §7.3 says.
+
+**The text of the report.**
+
+- The question, the three predictions and the three outcomes are in the first screen, before the
+  first heading (the check of stage 8).
+- I rendered the saved `numbers.json` again with the code of `58dfd8e`. The text is that of the
+  Colab run, with one difference: the sentence on the unit of the bootstrap. The report of the
+  Colab run says "Frames of one camera are not independent, so the image interval is too narrow".
+  That is true for these numbers. The code of `58dfd8e` gives the ratio (2.7) in its place.
+- `results/report.md` is the file of the Colab run, with no change.
+- **Found in this comparison:** the table "Differences in AP" took the order of its rows from the
+  order of the keys. `numbers.json` has its keys in the order of the alphabet, so a render from the
+  file had another row order than the render of the run. The report has a fixed order now
+  (`report.DIFFERENCES`).
+- **The sample images are not in the bundle.** The report links 8 files in `samples/`. They are in
+  `MyDrive/truckdet/results/samples`. They hold dataset images (CC BY-NC-SA 4.0), and `.gitignore`
+  keeps `results/samples/` out of the repository. So the links of the report have no file here.
+
+**Open: "the same text from the saved predictions on a second run"** (the check of stage 7). The
+tests do this on the tiny model, with the cache and with no cache. It is not done on MIO-TCD. A
+second run of stage `report` does not score the test split again: each final run has its
+`eval_test.json`. The analysis reads its cache, so the run takes minutes and not an hour. The key
+of the cache has the hash of the prediction file and of the resamples, so the cache is used only if
+the two are the same. Two checks for that run:
+
+1. `numbers.json` is the file of the first run, byte for byte.
+2. The text is the render of that file with the code of that day. It will differ from the text of
+   the first run in the sentences that the code changed after `d6ecfd3`, and in no number.
+
+**Label accuracy does not follow AP.** P2 is read with label accuracy in the truck family (design §2
+and §7.2), and the outcome by the rule is "refuted". The table has the numbers of the report for the
+truck family, and the top class that each arm gives to the 4,942 truck-family boxes (pooled over
+the 3 seeds).
+
+| Arm | AP, truck family | Label accuracy | Top class is `car` | Top class is `motorized_vehicle` | Top class is another truck class | Box AP (all classes) |
+|---|---|---|---|---|---|---|
+| H | 0.308 | 34.9% | 40.7% | 2.0% | 16.5% | 0.577 |
+| D | 0.370 | 46.5% | 30.7% | 3.4% | 12.8% | 0.599 |
+| B | 0.469 | 39.4% | 25.6% | 12.4% | 15.0% | 0.637 |
+| F | 0.500 | 34.4% | 49.8% | 4.5% | 6.3% | 0.656 |
+
+- Full fine-tuning has the highest AP of the truck family and the lowest label accuracy. By AP the
+  order is F, B, D, H. By label accuracy it is D, B, H, F.
+- The cause is in the definitions. Label accuracy reads one query for each box: the candidate with
+  the highest IoU of the 50 candidates. It reads only the top class of that query. AP ranks the
+  detections of each class separately, from the 100 best (query, class) pairs of an image. So a box
+  can be a true positive of its class in two ways that label accuracy does not see: the correct
+  class is the second class of the representative query, or another query at the same box has the
+  correct class.
+- The files here cannot separate these two ways. That needs the saved predictions on Drive.
+- A top class of `motorized_vehicle` costs label accuracy and costs no AP: AP is the mean of the 10
+  specific classes.
+- So "refuted" says: for the best-fitting query of a box, B does not give the correct class first
+  more often than D. It does not show where the AP advantage of the backbone comes from. The
+  localized share is the same for the two arms (97.4% and 97.5%), and the box AP of B is 0.038
+  above that of D.
+- The prediction, the rule and the outcome have no change. The report and design §11 get a limit
+  for this.
+- A possible analysis, not built: label accuracy with the candidate of the highest score as the
+  representative query. It needs the saved predictions and no training. It would come after the
+  results, so it would be a description and not a reading.

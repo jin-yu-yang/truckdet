@@ -8,5 +8,3 @@ __pycache__/
 *.pt
 *.npz
 /results_bundle*.zip
-# Sample images of the report hold dataset images (CC BY-NC-SA 4.0): read the licence before you publish them.
-/results/samples/

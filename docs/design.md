@@ -4,8 +4,9 @@
 - **Status:** ready to build.
 - **Changed:** 2026-11-10, change 1: scene groups by links, a split with a cap for each group, and a bootstrap of scene groups (§4.3, §4.5, §7.3, §11). The first method, k-means, failed the scene check on MIO-TCD: `docs/build_notes.md` §8. All other sections are as they were.
 - **Changed:** 2026-11-10, change 2: the split of the fourth run on MIO-TCD (links, the second embedding) is the split of the project. The scene check is a measurement now, not a pass rule. The answer is for test images that have no near image in the training data; it is not an answer for new cameras (§3, §4.3, §4.5, §11, §12). Three splits failed the scene check: `docs/build_notes.md` §8, §10 and §12. The predictions and readings (§2), the arms, the training, the metrics, the two automatic checks and the bootstrap of scene groups (§7.3) are as they were.
-- **Changed:** 2026-11-10, a decision on the label check (§4.5, §11): the count of clear objects decides the check. It is 2.0%, so the labels pass. The count with the objects that a person can only guess, about 10.5%, goes in the report.
+- **Changed:** 2026-11-10, on the label check (§4.5, §11): the count of clear objects decides the check. It is 2.0%, so the labels pass. The count with the objects that a person can only guess, about 10.5%, goes in the report.
 - **Changed:** 2026-11-13, a limit that the results showed (§11): label accuracy and AP measure different things, and on the test split they do not give the same order of the arms. The predictions, their rules and their outcomes are as they were: `docs/build_notes.md` §18.
+- **Changed:** 2026-11-13, on the licence (§11): the 8 sample images of the report are in the repository, under the licence of the dataset.
 - **Builds on:** the truck project in `~/detr-lora`. See the README sections "After the fourth round" and "Two-stage classification", `detr-lora/results/clip_second_stage.md`, and the code in `detr-lora/src/detr_lora/model/lora.py`, `detr-lora/src/detr_lora/diagnostics.py` and `detr-lora/src/detr_lora/separation.py`.
 - **Home:** a new repository. This file is here because the question comes from this repository's results. Move it when the new repository exists.
 
@@ -430,7 +431,7 @@ Each stage ends with a check. Do not start a stage before the check of the stage
 - **One model and one dataset.** The answer is for RF-DETR-base on traffic-camera images. It is not a general law.
 - **The library port.** Numbers can be different from those of the original `rfdetr` package.
 - **Memory.** Training uses 3,900 queries. Stage 0 sets the batch size.
-- **Licence.** CC BY-NC-SA 4.0. Publish code and split lists. Read the licence before you publish images.
+- **Licence.** CC BY-NC-SA 4.0. Publish code and split lists. Read the licence before you publish images. Decided 2026-11-13: the repository also has the 8 sample images of the report, with their source, their licence, the changes and the citation of the dataset (`results/samples/README.md`). No other image is published.
 
 ## 12. Not in scope, and extensions
 

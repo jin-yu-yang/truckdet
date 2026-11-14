@@ -164,8 +164,9 @@ test images were selected with the features of the frozen backbone. Both are
 possibly to the advantage of the backbone arms, so a confirmed P1 is the
 weaker result. The list is in [Limits](#limits).
 
-The sample images of the report are not in the repository. They hold dataset
-images (CC BY-NC-SA 4.0).
+The report shows 8 sample images of the test split, with the detections of
+each arm: [results/samples/](results/samples/README.md). They are dataset
+images, with the licence of the dataset (CC BY-NC-SA 4.0).
 
 ## Run it
 
@@ -267,4 +268,8 @@ All analysis runs on a CPU from the saved predictions of each run.
 ## Data and licence
 
 MIO-TCD is available from tcd.miovision.com under CC BY-NC-SA 4.0. This
-repository contains code and lists of image IDs. It contains no images.
+repository contains code, lists of image IDs and 8 images of the dataset:
+the sample images of the report, with boxes drawn on them. These 8 files
+have the licence of the dataset; their source, the changes and the citation
+are in [results/samples/README.md](results/samples/README.md). The
+repository contains no other images of the dataset.

@@ -21,7 +21,7 @@ Date of the build: 2026-11-10. Library: `transformers` 5.20.1. Checkpoint: `Robo
 | Stage 1, fourth run: the new split method with the second embedding (the 4 × 4 grid) | MIO-TCD, Colab T4 | The search and the automatic checks passed. **The scene check fails:** the same camera in 60 of 100 pairs (§12). The split was not accepted then. Design change 2 accepts it with its scene measurement (§13) |
 | Design change 2: the split of the fourth run is the split of the project (§13) | The split files of the repository, CPU | The seven files have the hashes of the change, and its numbers agree with the files. The report gives the scope of the answer and the new limits |
 | Label completeness (stage 1), with the decision of §14 | A person, 100 random images of MIO-TCD | **Passed:** 2.0% of the clear objects have no box (the limit is 5%). About 10.5% with the objects that a person can only guess; this count goes in the report |
-| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 165 passed |
+| Tests (`pytest`) | Tiny random RF-DETR and a synthetic MIO-TCD folder, CPU; the files of `splits/` and `results/` | 166 passed |
 | Tests of the real checkpoint (`pytest -m slow`) | Real checkpoint, CPU | 5 passed |
 | The start model on real images | 60 LVIS truck images written in MIO-TCD's CSV format, CPU | AP50 0.30 with no training (§5) |
 | Arms H and F on 8 real images | The same stand-in images, CPU | The loss decreases; the checkpoint chain works (§5) |
@@ -1102,7 +1102,8 @@ The rules of design §2 give these outcomes from the intervals of `numbers.json`
   (`report.DIFFERENCES`).
 - **The sample images are not in the bundle.** The report links 8 files in `samples/`. They are in
   `MyDrive/truckdet/results/samples`. They hold dataset images (CC BY-NC-SA 4.0), and `.gitignore`
-  keeps `results/samples/` out of the repository. So the links of the report have no file here.
+  kept `results/samples/` out of the repository then. So the links of the report had no file here.
+  The images are in the repository since §19.
 
 **Open then: "the same text from the saved predictions on a second run"** (the check of stage 7;
 done in §19). The tests do this on the tiny model, with the cache and with no cache. It was not done
@@ -1184,11 +1185,6 @@ pixels and has four panels, one for each arm: the ground truth in white with its
 detections of the arm with a score of 0.5 or more, in the colour of the arm. I looked at 2 of the 8
 (`00001992` and `00034773`); they are as the report says. In `00034773`, arm H gives `car` to a
 pickup truck, and arms D, B and F give `pickup_truck`.
-
-- The files are in `results/samples/` on this computer, so the links of the report work here.
-- They are not in the repository: `.gitignore` keeps that folder out. They hold dataset images
-  (CC BY-NC-SA 4.0), and design §11 says to publish the code and the split lists and to read the
-  licence before images are published.
 
 **What is not built.** The second test set `test_seen` (design §12, optional). The analysis of
 label accuracy with the candidate of the highest score (§18), which would be a description and not

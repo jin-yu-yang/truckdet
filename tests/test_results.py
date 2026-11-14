@@ -7,6 +7,7 @@ that the outcomes follow the rules of design §2, and that the report and the RE
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -172,3 +173,17 @@ def test_the_report_is_that_of_the_second_run(numbers):
     ratio = (b_d["high"] - b_d["low"]) / (by_image["high"] - by_image["low"])
     assert f"The interval of the scene groups is {ratio:.1f} times as wide as that of the single images." in text
     assert "the image interval is too narrow" not in text
+
+
+def test_the_sample_images_of_the_report_are_in_the_repository():
+    """The 8 files are dataset images, so the folder gives their source, licence and citation (build notes §19)."""
+    links = re.findall(r"!\[[^\]]*\]\((samples/[^)]+)\)", (RESULTS / "report.md").read_text())
+    assert len(links) == 8 and all((RESULTS / link).stat().st_size > 100_000 for link in links)
+    assert {p.name for p in (RESULTS / "samples").glob("*.png")} == {Path(link).name for link in links}
+    test_ids = set(read_ids(ROOT / "splits" / "test.txt"))
+    assert all(Path(link).stem in test_ids for link in links)  # each one is an image of the test split
+    note = (RESULTS / "samples" / "README.md").read_text()
+    for needed in ("tcd.miovision.com", "CC BY-NC-SA 4.0", "creativecommons.org/licenses/by-nc-sa/4.0/",
+                   "10.1109/TIP.2018.2848705"):
+        assert needed in note
+    assert "results/samples/README.md" in (ROOT / "README.md").read_text().split("\n## Data and licence\n")[1]
